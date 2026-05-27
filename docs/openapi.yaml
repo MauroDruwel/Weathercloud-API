@@ -6,7 +6,21 @@ info:
 
     **No authentication required** — all endpoints work without any CSRF token or login.
 
-    **Device ID**: The numeric ID in the URL, e.g. `5726468552` from `app.weathercloud.net/d5726468552`.
+    ---
+
+    ### IDs
+
+    | Type | Format | Example |
+    |------|--------|---------|
+    | Weather station | 10-digit numeric string | `5726468552` from `app.weathercloud.net/d5726468552` |
+    | METAR / airport | ICAO code (4 letters) | `EBBR` for Brussels Airport |
+
+    ### METAR support
+    Most `device/*` routes also work for METAR (airport) stations by swapping the prefix:
+    `/device/values/{id}` → `/metar/values/{id}`
+
+    ### Rate limiting
+    Weathercloud rate-limits API requests. Free stations update every **10 minutes**, paid stations every **1 minute** — avoid polling more frequently than that.
 
     ---
 
@@ -19,7 +33,7 @@ info:
     Then use the **Servers** dropdown above to select `http://localhost:8765/proxy`.
 
     ### Import into Postman
-    **File → Import** → upload `openapi.yaml` (or paste the raw URL of this file).
+    **File → Import** → upload `docs/openapi.yaml` (or paste the raw URL of this file).
 
     ---
 
@@ -526,6 +540,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PageDevicesResponse'
+
+  /metar/values/{deviceId}:
+    get:
+      tags: [Miscellaneous]
+      summary: METAR station — current readings
+      description: |
+        Most `device/*` routes work identically for METAR (airport) stations by replacing the `device` prefix with `metar`.
+
+        METAR station IDs are **ICAO codes** (4 letters), e.g. `EBBR` for Brussels Airport.
+
+        **Supported `metar/*` routes (same request/response as their `device/*` counterparts):**
+        - `GET /metar/values/{icao}` — current readings
+        - `GET /metar/stats?code={icao}` — statistics
+        - `GET /metar/wind?code={icao}` — wind rose
+        - `GET /metar/info/{icao}` — station metadata
+        - `POST /metar/ajaxupdatedate` — last update time
+        - `POST /metar/ajaxprofile` — station profile
+        - `POST /metar/evolution` — time-series history
+
+        > **Not supported for METAR:** `/device/ajaxdevicestats`
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          description: ICAO airport code
+          schema:
+            type: string
+          example: "EBBR"
+        - $ref: '#/components/parameters/xRequestedWith'
+      responses:
+        "200":
+          description: Same structure as `/device/values/{deviceId}`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceValues'
 
   /d{deviceId}:
     get:
