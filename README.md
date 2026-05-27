@@ -1,51 +1,63 @@
 # Weathercloud Unofficial API
 
-Reverse-engineered OpenAPI 3.0 spec for [app.weathercloud.net](https://app.weathercloud.net).
+Reverse-engineered OpenAPI 3.0 spec and unofficial Python library for [app.weathercloud.net](https://app.weathercloud.net).
 
 > **No authentication required** — all endpoints work without any CSRF token or login (verified by testing).
 
 ---
 
-## Browse the docs
+## Repository structure
 
-Open `index.html` in any static file server, or visit the hosted version:
-
-→ **[View swagger](https://weathercloud-api.maurodruwel.be)**
+```
+Weathercloud-API/
+├── docs/               # Swagger UI + OpenAPI spec (served via GitHub Pages)
+│   ├── openapi.yaml    # The API spec — single source of truth
+│   ├── index.html      # Swagger UI shell
+│   └── proxy.py        # Local CORS proxy for "Try it out"
+├── weathercloud.py     # Unofficial Python client library
+├── example.py          # Usage example for the Python library
+└── README.md
+```
 
 ---
 
-## Try it out locally
+## API Docs
 
-The Swagger UI's **Try it out** feature requires a local proxy to avoid CORS restrictions from the browser.
+Browse the interactive docs at:
 
-**Requirements:** Python 3.8+ and Flask
+→ **[weathercloud-api.maurodruwel.be](https://weathercloud-api.maurodruwel.be)**
+
+Or import `docs/openapi.yaml` into Postman:
+1. Open Postman → **File → Import**
+2. Upload `docs/openapi.yaml` (or paste its raw GitHub URL)
+
+---
+
+## Python Library
+
+A minimal client for the Weathercloud API — based on the OpenAPI spec above.
+
+```python
+from weathercloud import WeathercloudClient
+
+client = WeathercloudClient()
+info = client.get_device_info("5726468552")
+```
+
+See `example.py` for a full walkthrough of all endpoints.
+
+---
+
+## Try it out locally (Swagger UI)
+
+The **Try it out** button in Swagger UI requires a local proxy due to browser CORS restrictions.
 
 ```bash
 pip install flask
-python proxy.py
+python docs/proxy.py
 ```
 
 Then open **[http://localhost:8765](http://localhost:8765)**.
-
-The proxy forwards requests to `https://app.weathercloud.net` and adds the required CORS headers.
-
----
-
-## Import into Postman
-
-1. Open Postman → **File → Import**
-2. Upload `openapi.yaml` (or paste its raw GitHub URL)
-3. All endpoints are imported with examples and descriptions
-
----
-
-## File overview
-
-| File | Purpose |
-|------|---------|
-| `openapi.yaml` | The API spec — single source of truth |
-| `index.html` | Swagger UI shell — loads `openapi.yaml` at runtime |
-| `proxy.py` | Local CORS proxy (Flask) for Try it out |
 
 ---
 
