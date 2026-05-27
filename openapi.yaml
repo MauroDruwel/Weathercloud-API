@@ -48,6 +48,8 @@ tags:
     description: Map / nearby station discovery
   - name: Pages
     description: Station listing pages
+  - name: Miscellaneous
+    description: Undocumented tricks and HTML scraping
 
 paths:
 
@@ -524,6 +526,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PageDevicesResponse'
+
+  /d{deviceId}:
+    get:
+      tags: [Miscellaneous]
+      summary: Station HTML page (scrape station name)
+      description: |
+        The station **name** is not available from any JSON API endpoint.
+        The easiest way to get it is to fetch the station's HTML page and extract
+        the name from the `<title>` or `og:title` meta tag.
+
+        **Example response title:**
+        ```
+        WeatherStation Skyline - Weathercloud | Global network of weather stations
+        ```
+
+        Strip everything from ` - Weathercloud` onward to get the clean station name.
+
+        > This is a plain HTML page, not a JSON API. Use it for scraping only.
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "0826505936"
+      responses:
+        "200":
+          description: HTML page — extract station name from `<title>` or `<meta property="og:title">`
+          content:
+            text/html:
+              schema:
+                type: string
 
 components:
   parameters:
