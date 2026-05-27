@@ -10,8 +10,7 @@ Reverse-engineered OpenAPI 3.0 spec for [app.weathercloud.net](https://app.weath
 
 Open `index.html` in any static file server, or visit the hosted version:
 
-→ **[View on GitHub Pages](https://YOUR-USERNAME.github.io/weathercloud-api/)**
-*(replace with your actual URL after deploying)*
+→ **[View swagger](https://weathercloud-api.maurodruwel.be)**
 
 ---
 
@@ -37,16 +36,6 @@ The proxy forwards requests to `https://app.weathercloud.net` and adds the requi
 1. Open Postman → **File → Import**
 2. Upload `openapi.yaml` (or paste its raw GitHub URL)
 3. All endpoints are imported with examples and descriptions
-
----
-
-## Host on GitHub Pages
-
-1. Push this repo to GitHub
-2. Go to **Settings → Pages → Source: Deploy from a branch → `main` / `(root)`**
-3. Your docs will be live at `https://YOUR-USERNAME.github.io/REPO-NAME/`
-
-For **Try it out** on the hosted docs, run `python proxy.py` locally — browsers allow HTTPS pages to call `http://localhost` without mixed-content issues.
 
 ---
 
