@@ -1,66 +1,158 @@
-# Weathercloud Unofficial API
+# weathercloud-py
 
-Reverse-engineered OpenAPI 3.0 spec and unofficial Python library for [app.weathercloud.net](https://app.weathercloud.net).
+Unofficial Python client for [Weathercloud](https://app.weathercloud.net). No account needed.
 
-> **No authentication required** — all endpoints work without any CSRF token or login (verified by testing).
+> Reverse-engineered from HAR captures. Not affiliated with Weathercloud.
 
----
-
-## Repository structure
-
-```
-Weathercloud-API/
-├── docs/               # Swagger UI + OpenAPI spec (served via GitHub Pages)
-│   ├── openapi.yaml    # The API spec — single source of truth
-│   ├── index.html      # Swagger UI shell
-│   └── proxy.py        # Local CORS proxy for "Try it out"
-├── weathercloud.py     # Unofficial Python client library
-├── example.py          # Usage example for the Python library
-└── README.md
+```sh
+pip install weathercloud-py   # not on PyPI yet — clone and pip install -e .
 ```
 
 ---
 
-## API Docs
-
-Browse the interactive docs at:
-
-→ **[weathercloud-api.maurodruwel.be](https://weathercloud-api.maurodruwel.be)**
-
-Or import `docs/openapi.yaml` into Postman:
-1. Open Postman → **File → Import**
-2. Upload `docs/openapi.yaml` (or paste its raw GitHub URL)
-
----
-
-## Python Library
-
-A minimal client for the Weathercloud API — based on the OpenAPI spec above.
+## Quick start
 
 ```python
 from weathercloud import WeathercloudClient
 
 client = WeathercloudClient()
-info = client.get_device_info("5726468552")
-```
+cond = client.get_current_conditions("5726468552")
 
-See `example.py` for a full walkthrough of all endpoints.
+print(cond.temperature)   # 22.8
+print(cond.humidity)      # 62
+print(cond.wind_gust)     # 1.4
+```
 
 ---
 
-## Try it out locally (Swagger UI)
+## API
 
-The **Try it out** button in Swagger UI requires a local proxy due to browser CORS restrictions.
+### `get_current_conditions(device_id)` → `CurrentConditions`
 
-```bash
+Live sensor readings as a typed dataclass. The one you'll call most.
+
+```python
+cond = client.get_current_conditions("5726468552")
+cond.temperature      # float °C
+cond.dew_point        # float °C
+cond.wind_chill       # float °C
+cond.heat_index       # float °C
+cond.humidity         # int %
+cond.pressure         # float hPa
+cond.wind_speed       # float m/s (instantaneous)
+cond.wind_speed_avg   # float m/s
+cond.wind_gust        # float m/s
+cond.wind_direction   # int °
+cond.rain             # float mm
+cond.rain_rate        # float mm/h
+cond.solar_radiation  # float W/m²
+cond.uv_index         # int
+cond.epoch            # int unix timestamp
+```
+
+### `get_station_info(device_id, scrape_name=True)` → `StationInfo`
+
+Station metadata. The name isn't in any JSON endpoint, so it's scraped from HTML (one extra request). Pass `scrape_name=False` to skip it.
+
+```python
+info = client.get_station_info("5726468552")
+info.name                   # "Ginometeo"
+info.city                   # "Ingelmunster"
+info.altitude               # "18.0"  (metres, as string)
+info.status                 # "online" | "recently_online" | "offline"
+info.seconds_since_update   # int
+info.account_type           # 0 = free, >0 = premium
+```
+
+### `get_device_stats(device_id)` → `dict`
+
+Current readings + day / month / year min–max. Each value is a `[unix_timestamp, value]` pair.
+
+```python
+stats = client.get_device_stats("5726468552")
+stats["temp_day_max"]       # [1748358122, 30.9]
+stats["rain_month_total"]   # [1748358122, 12.4]
+```
+
+Key pattern: `{sensor}_{period}_{type}` — e.g. `wspd_year_max`, `rain_day_total`.
+
+### `get_evolution(device_id, variable, period)` → `dict`
+
+Hourly history for one sensor. `period` is `"day"`, `"week"`, `"month"`, or `"year"`.
+
+```python
+from weathercloud import VariableCode
+
+evo = client.get_evolution("5726468552", VariableCode.TEMPERATURE, "week")
+```
+
+Available codes: `TEMPERATURE`, `HUMIDITY`, `DEW_POINT`, `PRESSURE`, `WIND_SPEED`, `WIND_DIRECTION`, `WIND_GUST`, `RAIN`, `RAIN_RATE`, `SOLAR_RADIATION`, `UV_INDEX`.
+
+### `get_forecast(device_id)` → `dict`
+
+6-day WMO daily forecast for the station's location.
+
+### `get_nearby_stations(lat, lon, distance_km=5)` → `dict`
+
+Stations within radius. Note: sensor values inside each result are **×10 integers** — divide by 10.
+
+### Other raw methods
+
+```python
+client.get_device_values(device_id)    # same data as get_current_conditions, as raw dict
+client.get_device_info(device_id)      # metadata + current values as strings
+client.get_wind_rose(device_id)        # wind direction distribution
+client.get_update_status(device_id)    # seconds since last update
+client.get_owner_profile(device_id)    # observer name, hardware brand/model
+client.get_station_name(device_id)     # scrape name only
+```
+
+---
+
+## Error handling
+
+Everything raises `WeathercloudError` on failure (network error, bad JSON, HTTP error).
+
+```python
+from weathercloud import WeathercloudError
+
+try:
+    cond = client.get_current_conditions(device_id)
+except WeathercloudError as exc:
+    # handle it — set unavailable in HA, log it, whatever
+    print(exc)
+```
+
+---
+
+## Device IDs
+
+The number at the end of the station URL:
+
+```
+app.weathercloud.net/d5726468552  →  device_id = "5726468552"
+```
+
+METAR (airport) stations use ICAO codes (`EBBR`, `EGLL`, …) and work on most `device/*` endpoints — just swap the prefix to `metar/*`.
+
+---
+
+## Notes
+
+- **No auth required** for any of these endpoints
+- **Poll at most every 10 minutes** — that's how often free stations update
+- Default request timeout is 10 s — override with `WeathercloudClient(timeout=30)`
+- Based on the [reverse-engineered OpenAPI spec](./docs/openapi.yaml) in this repo
+
+---
+
+## Swagger UI / OpenAPI docs
+
+Hosted at **[weathercloud-api.maurodruwel.be](https://weathercloud-api.maurodruwel.be)** — or run locally:
+
+```sh
 pip install flask
-python docs/proxy.py
+python docs/proxy.py   # starts proxy on :8765
+# open docs/index.html
 ```
 
-Then open **[http://localhost:8765](http://localhost:8765)**.
-
----
-
-## Device ID
-
-The numeric ID in the URL: `app.weathercloud.net/d`**`5726468552`**
