@@ -293,7 +293,25 @@ paths:
         - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Daily forecast
+          description: Daily forecast (6 days from WMO)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForecastResponse'
+              example:
+                info:
+                  source: WMO
+                  web: https://worldweather.wmo.int
+                  days: 6
+                location:
+                  name: Ingelmunster
+                forecast:
+                  "2026-05-28":
+                    weather:
+                      code: 12
+                    temperature:
+                      max: 29
+                      min: 16
 
   /map/devices:
     post:
@@ -320,7 +338,11 @@ paths:
                   example: "50.9,3.1,10"
       responses:
         "200":
-          description: List of nearby stations
+          description: Stations on the map as arrays of scaled values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MapDevicesResponse'
 
   /map/bgdevices:
     post:
@@ -338,7 +360,11 @@ paths:
                   type: string
       responses:
         "200":
-          description: List of inactive stations
+          description: Inactive/background stations (same array format as /map/devices)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MapDevicesResponse'
 
   /map/metars:
     post:
@@ -354,7 +380,19 @@ paths:
               type: object
       responses:
         "200":
-          description: METAR data
+          description: METAR airport observations as arrays
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metars:
+                    type: array
+                    description: |
+                      Each entry: `[icao, city, lat, lon, status, 0, wdir, hum, bar*10, wspd*10, wdir2, 0, "", "", ""]`
+                    items:
+                      type: array
+                      example: ["EBBR", "Brussels", 50.9014, 4.4844, 2, 0, 260, 58, 10220, 80, 260, 0, "", "", ""]
 
   /page/coordinates/latitude/{lat}/longitude/{lon}/distance/{km}:
     get:
@@ -362,8 +400,8 @@ paths:
       summary: Stations near coordinates ⭐
       description: |
         Returns nearby stations as JSON (despite `text/html` content-type header).
-        This is the only endpoint that returns the **station name**.
-        Values are scaled integers (e.g. temp `281` = 28.1°C, bar `10247` = 1024.7 hPa).
+        All `page/*` endpoints return `PageDevice` objects that include the **station name**.
+        Values are scaled integers — divide by 10 (e.g. `temp: 281` = 28.1°C).
       parameters:
         - name: lat
           in: path
@@ -386,16 +424,11 @@ paths:
         - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Nearby stations list with name, coordinates and current values
+          description: Nearby stations with name, coordinates and current values
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  devices:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/PageDevice'
+                $ref: '#/components/schemas/PageDevicesResponse'
 
   /page/popular/country/{country}/period/{period}:
     get:
@@ -415,9 +448,14 @@ paths:
             type: string
             enum: [day, week, month]
           example: day
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Popular stations (HTML)
+          description: Popular stations with name and current values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageDevicesResponse'
 
   /page/newest/country/{country}:
     get:
@@ -430,9 +468,14 @@ paths:
           schema:
             type: string
           example: BE
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Newest stations (HTML)
+          description: Newest stations with name and current values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageDevicesResponse'
 
   /page/followers/country/{country}:
     get:
@@ -445,25 +488,42 @@ paths:
           schema:
             type: string
           example: BE
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Most followed stations (HTML)
+          description: Most followed stations with name and current values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageDevicesResponse'
 
   /page/lastviews:
     get:
       tags: [Pages]
       summary: Recently viewed stations
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Last viewed stations (HTML)
+          description: Last viewed stations (empty array if not logged in)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageDevicesResponse'
 
   /page/own:
     get:
       tags: [Pages]
       summary: Own stations (requires login)
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Your stations (HTML)
+          description: Your stations (empty array if not logged in)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageDevicesResponse'
 
 components:
   parameters:
@@ -539,29 +599,20 @@ components:
     DeviceStats:
       type: object
       description: |
-        Each sensor has _current, _day_max, _day_min, _month_max, _month_min, _year_max, _year_min keys.
-        Values are [unix_timestamp, value] tuples.
+        Current readings and period statistics for all sensors.
+        All values are `[unix_timestamp, value]` tuples (`TimestampValue`).
+
+        **Key pattern:** `{sensor}_{period}_{type}`
+        - Sensors: `temp`, `dew`, `chill`, `heat`, `hum`, `bar`, `wdir`, `wdiravg`, `wspd`, `wspdavg`, `wspdhi`, `rainrate`, `rain`, `solarrad`, `uvi`
+        - Period types: `current`, `day_max`, `day_min`, `month_max`, `month_min`, `year_max`, `year_min`
+        - Rain also has: `day_total`, `month_total`, `year_total`
+        - Solarrad also has: `day_hours`, `month_hours`, `year_hours`
       properties:
         last_update:
           type: integer
-        temp_current:
-          $ref: '#/components/schemas/TimestampValue'
-        temp_day_max:
-          $ref: '#/components/schemas/TimestampValue'
-        temp_day_min:
-          $ref: '#/components/schemas/TimestampValue'
-        hum_current:
-          $ref: '#/components/schemas/TimestampValue'
-        bar_current:
-          $ref: '#/components/schemas/TimestampValue'
-        rain_day_total:
-          $ref: '#/components/schemas/TimestampValue'
-        rain_month_total:
-          $ref: '#/components/schemas/TimestampValue'
-        rain_year_total:
-          $ref: '#/components/schemas/TimestampValue'
-        solarrad_day_hours:
-          $ref: '#/components/schemas/TimestampValue'
+          description: Unix timestamp of last reading
+      additionalProperties:
+        $ref: '#/components/schemas/TimestampValue'
 
     TimestampValue:
       type: array
@@ -701,6 +752,7 @@ components:
               example: "Europe/Brussels"
             summary:
               type: object
+              description: Keyed by variable code (e.g. "101")
               additionalProperties:
                 type: object
                 properties:
@@ -718,9 +770,29 @@ components:
                     type: integer
             values:
               type: object
-              description: Keyed by Unix timestamp (hour buckets)
+              description: |
+                Keyed by Unix timestamp (hour buckets), then by variable code.
+                Each entry has `samples` and `stats`.
               additionalProperties:
                 type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    samples:
+                      type: integer
+                    stats:
+                      type: object
+                      properties:
+                        sum:
+                          type: number
+                        min:
+                          type: number
+                        min_time:
+                          type: integer
+                        max:
+                          type: number
+                        max_time:
+                          type: integer
 
     PageDevice:
       type: object
@@ -796,3 +868,87 @@ components:
               type: string
             uvi:
               type: string
+            tempin:
+              type: string
+              description: Indoor temperature (°C, scaled ×10) — if sensor present
+            humin:
+              type: string
+              description: Indoor humidity (%, scaled ×10) — if sensor present
+    PageDevicesResponse:
+      type: object
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/PageDevice'
+
+    ForecastResponse:
+      type: object
+      properties:
+        info:
+          type: object
+          properties:
+            source:
+              type: string
+              example: WMO
+            web:
+              type: string
+              example: https://worldweather.wmo.int
+            days:
+              type: integer
+              example: 6
+        location:
+          type: object
+          properties:
+            name:
+              type: string
+              description: Nearest city name
+              example: Ingelmunster
+        forecast:
+          type: object
+          description: Keyed by date string (YYYY-MM-DD)
+          additionalProperties:
+            type: object
+            properties:
+              weather:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    description: WMO weather interpretation code
+              temperature:
+                type: object
+                properties:
+                  max:
+                    type: integer
+                    nullable: true
+                  min:
+                    type: integer
+                    nullable: true
+
+    MapDevicesResponse:
+      type: object
+      description: |
+        Stations as compact arrays. Also contains `owner` and `favorites` arrays (empty unless logged in).
+      properties:
+        devices:
+          type: array
+          description: |
+            Each entry is an array:
+            `[id, city, lat, lon, status, 0, temp×10, hum, bar×10, wspd×10, wdir, rainrate×10, rain×10, solarrad×10, uvi×10]`
+
+            - `status`: 1=online, 2=recently online, 3=offline
+            - Divide index 6 and above by 10 to get real units
+          items:
+            type: array
+            example: ["RWACTX", "Wilsele-Herent", 50.904295, 4.69565, 2, 0, 277, 54, 10270, 19, 336, 0, 0, 8050, 47]
+        owner:
+          type: array
+          description: Owner's own stations (empty if not logged in)
+          items:
+            type: array
+        favorites:
+          type: array
+          description: Favourite stations (empty if not logged in)
+          items:
+            type: array
