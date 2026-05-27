@@ -150,7 +150,12 @@ paths:
     post:
       tags: [Device (live)]
       summary: Last update time + status
-      description: Returns seconds since last update and device online status.
+      description: |
+        Returns seconds since last update and device online status.
+
+        > ⚠️ **Requires `X-Requested-With: XMLHttpRequest`** header — without it the server returns an empty 200.
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       requestBody:
         content:
           application/x-www-form-urlencoded:
@@ -187,7 +192,12 @@ paths:
     post:
       tags: [Device (live)]
       summary: Station owner profile
-      description: Returns observer name, follower count, and device brand/model.
+      description: |
+        Returns observer name, follower count, and device brand/model.
+
+        > ⚠️ **Requires `X-Requested-With: XMLHttpRequest`** header — without it the server returns an empty 200.
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       requestBody:
         content:
           application/x-www-form-urlencoded:
@@ -222,6 +232,8 @@ paths:
       summary: Time-series history for a variable
       description: |
         Returns hourly aggregated history for a given variable and period.
+
+        > ⚠️ **Requires `X-Requested-With: XMLHttpRequest`** header — without it the server returns an empty 200.
         
         **Variable codes:**
         | Code | Sensor |
@@ -257,6 +269,8 @@ paths:
                   type: string
                   enum: [day, week, month, year]
                   example: day
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
           description: Time-series evolution data
@@ -285,7 +299,12 @@ paths:
     post:
       tags: [Map]
       summary: Stations on map within area
-      description: Returns stations visible on the map for a given location bounding box.
+      description: |
+        Returns stations visible on the map for a given location bounding box.
+
+        > ⚠️ **Requires `X-Requested-With: XMLHttpRequest`** header — without it the server returns an empty 200.
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       requestBody:
         content:
           application/x-www-form-urlencoded:
@@ -307,6 +326,8 @@ paths:
     post:
       tags: [Map]
       summary: Background/inactive stations on map
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       requestBody:
         content:
           application/x-www-form-urlencoded:
@@ -323,6 +344,8 @@ paths:
     post:
       tags: [Map]
       summary: METAR airport observations on map
+      parameters:
+        - $ref: '#/components/parameters/xRequestedWith'
       requestBody:
         required: false
         content:
@@ -336,7 +359,11 @@ paths:
   /page/coordinates/latitude/{lat}/longitude/{lon}/distance/{km}:
     get:
       tags: [Pages]
-      summary: Stations near coordinates
+      summary: Stations near coordinates ⭐
+      description: |
+        Returns nearby stations as JSON (despite `text/html` content-type header).
+        This is the only endpoint that returns the **station name**.
+        Values are scaled integers (e.g. temp `281` = 28.1°C, bar `10247` = 1024.7 hPa).
       parameters:
         - name: lat
           in: path
@@ -356,9 +383,19 @@ paths:
           schema:
             type: integer
           example: 5
+        - $ref: '#/components/parameters/xRequestedWith'
       responses:
         "200":
-          description: Nearby stations list (HTML page)
+          description: Nearby stations list with name, coordinates and current values
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PageDevice'
 
   /page/popular/country/{country}/period/{period}:
     get:
@@ -537,23 +574,74 @@ components:
 
     DeviceInfo:
       type: object
-      description: Station metadata
+      description: |
+        Station metadata and current sensor snapshot.
+        Note: sensor values are returned as strings; unavailable sensors show `-3276.8` / `-32768`.
       properties:
-        name:
-          type: string
-        city:
-          type: string
-        country:
-          type: string
-        lat:
-          type: number
-        lon:
-          type: number
-        alt:
-          type: number
-          description: Altitude (m)
-        timezone:
-          type: string
+        device:
+          type: object
+          properties:
+            account:
+              type: integer
+              description: Account type (0 = free)
+            status:
+              type: string
+              description: '"1" = online, "2" = recently online, "3" = offline'
+            city:
+              type: string
+              description: City name
+            altitude:
+              type: string
+              description: Altitude in metres (as string)
+            image:
+              type: string
+              nullable: true
+              description: URL to station photo, or null
+            isWebcam:
+              type: boolean
+            favorite:
+              type: boolean
+            social:
+              type: boolean
+            update:
+              type: integer
+              description: Seconds since last update
+        values:
+          type: object
+          description: |
+            Current sensor readings as strings.
+            Unavailable sensors return `"-3276.8"` (float sensors) or `"-32768"` (integer sensors).
+          properties:
+            temp:
+              type: string
+              description: Temperature (°C)
+            hum:
+              type: string
+              description: Relative humidity (%)
+            dew:
+              type: string
+              description: Dew point (°C)
+            wspdavg:
+              type: string
+              description: Average wind speed (m/s)
+            wdiravg:
+              type: string
+              description: Average wind direction (°)
+            bar:
+              type: string
+              description: Barometric pressure (hPa)
+            rain:
+              type: string
+              description: Total rain (mm)
+            rainrate:
+              type: string
+              description: Rain rate (mm/h)
+            solarrad:
+              type: string
+              description: Solar radiation (W/m²)
+            uvi:
+              type: string
+              description: UV index
 
     DeviceProfile:
       type: object
@@ -633,3 +721,78 @@ components:
               description: Keyed by Unix timestamp (hour buckets)
               additionalProperties:
                 type: object
+
+    PageDevice:
+      type: object
+      description: Station entry returned by page/coordinates
+      properties:
+        type:
+          type: string
+          example: device
+        code:
+          type: string
+          description: Device ID (numeric string)
+          example: "2034767194"
+        name:
+          type: string
+          description: Station name as set by the owner
+          example: "WeatherStation Skyline"
+        city:
+          type: string
+        latitude:
+          type: string
+        longitude:
+          type: string
+        elevation:
+          type: string
+          description: Altitude in metres
+        image:
+          type: string
+        isWebcam:
+          type: boolean
+        account:
+          type: integer
+        isFavorite:
+          type: boolean
+        update:
+          type: integer
+          description: Seconds since last update
+        data:
+          type: string
+          description: Distance from query point (km)
+        values:
+          type: object
+          description: |
+            Scaled integer sensor readings — divide by 10 for most values.
+            e.g. `temp: 281` → 28.1°C, `bar: 10247` → 1024.7 hPa, `uvi: 70` → UV 7.0
+          properties:
+            epoch:
+              type: string
+            temp:
+              type: string
+            hum:
+              type: string
+            dew:
+              type: string
+            chill:
+              type: string
+            heat:
+              type: string
+            bar:
+              type: string
+            wdir:
+              type: string
+            wspd:
+              type: string
+            wspdavg:
+              type: string
+            wspdhi:
+              type: string
+            rainrate:
+              type: string
+            rain:
+              type: string
+            solarrad:
+              type: string
+            uvi:
+              type: string
