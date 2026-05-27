@@ -1,174 +1,105 @@
+"""
+Weathercloud library usage example.
+Demonstrates both the high-level typed API and raw dict access.
+"""
 import datetime
-from weathercloud import WeathercloudClient
+from weathercloud import WeathercloudClient, WeathercloudError, VariableCode
 
-def print_section(title: str):
-    print(f"\n{'='*10} {title} {'='*10}")
+DEVICE_ID = "5726468552"
 
-def main():
-    # Initialize the unofficial client
+
+def main() -> None:
     client = WeathercloudClient()
-    
-    # Using the active test ID provided in the OpenAPI spec
-    DEVICE_ID = "5726468552" 
-    
-    print(f"Extracting all possible data layers for Device ID: {DEVICE_ID}")
-    
-    # ---------------------------------------------------------
-    # 1. SCRAPE STATION NAME
-    # ---------------------------------------------------------
-    print_section("STATION IDENTITY")
-    try:
-        station_name = client.scrape_station_name(DEVICE_ID)
-        print(f"Station Name: {station_name}")
-    except Exception as e:
-        print(f"[-] Could not scrape station name: {e}")
 
-    # ---------------------------------------------------------
-    # 2. METADATA & STATUS (GET /device/info/{id})
-    # ---------------------------------------------------------
-    print_section("STATION METADATA & STATUS")
+    # ------------------------------------------------------------------
+    # 1. Station info (metadata + scraped name)
+    # ------------------------------------------------------------------
+    print("=== Station Info ===")
     try:
-        info = client.get_device_info(DEVICE_ID)
-        dev_meta = info.get("device", {})
-        
-        status_map = {"1": "Online", "2": "Recently Online", "3": "Offline"}
-        status_code = dev_meta.get("status")
-        
-        print(f"City:           {dev_meta.get('city')}")
-        print(f"Altitude:       {dev_meta.get('altitude')} meters")
-        print(f"Status:         {status_map.get(status_code, 'Unknown')} ({status_code})")
-        print(f"Last Update:    {dev_meta.get('update')} seconds ago")
-        print(f"Account Tier:   {'Premium/Pro' if dev_meta.get('account', 0) > 0 else 'Free'}")
-        
-        # Pull owner profile data
-        profile = client.get_owner_profile(DEVICE_ID)
-        obs = profile.get("observer", {})
-        dev_hardware = profile.get("device", {})
-        print(f"Observer:       {obs.get('name')} aka '{obs.get('nickname')}'")
-        print(f"Hardware:       {dev_hardware.get('brand')} - {dev_hardware.get('model')}")
-        print(f"Followers:      {profile.get('followers', {}).get('number', '0')}")
-        
-    except Exception as e:
-        print(f"[-] Failed to fetch station metadata layers: {e}")
+        info = client.get_station_info(DEVICE_ID)
+        print(f"Name:    {info.name}")
+        print(f"City:    {info.city}  ({info.altitude} m)")
+        print(f"Status:  {info.status}  ({info.seconds_since_update}s ago)")
+        print(f"Tier:    {'premium' if info.account_type > 0 else 'free'}")
+    except WeathercloudError as exc:
+        print(f"Error: {exc}")
 
-    # ---------------------------------------------------------
-    # 3. LIVE SENSOR READINGS (GET /device/values/{id})
-    # ---------------------------------------------------------
-    print_section("LIVE SENSOR READINGS")
+    # ------------------------------------------------------------------
+    # 2. Live sensor readings (typed dataclass)
+    # ------------------------------------------------------------------
+    print("\n=== Current Conditions ===")
     try:
-        live = client.get_device_values(DEVICE_ID)
-        
-        if "epoch" in live:
-            obs_time = datetime.datetime.fromtimestamp(live["epoch"], tz=datetime.timezone.utc)
-            print(f"Observation Time (UTC): {obs_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-        print(f"Temperature:      {live.get('temp')} °C  (Feels Like: {live.get('heat')} °C / Chill: {live.get('chill')} °C)")
-        print(f"Dew Point:        {live.get('dew')} °C")
-        print(f"Humidity:         {live.get('hum')}%")
-        print(f"Barometer:        {live.get('bar')} hPa")
-        print(f"Wind:             {live.get('wspd')} m/s (Avg: {live.get('wspdavg')} m/s, Gust: {live.get('wspdhi')} m/s)")
-        print(f"Wind Direction:   {live.get('wdir')}° (Avg Direction: {live.get('wdiravg')}°)")
-        print(f"Rain:             {live.get('rain')} mm (Current Rate: {live.get('rainrate')} mm/h)")
-        print(f"Solar Radiation:  {live.get('solarrad')} W/m²")
-        print(f"UV Index:         {live.get('uvi')}")
-    except Exception as e:
-        print(f"[-] Failed to extract live metrics: {e}")
+        cond = client.get_current_conditions(DEVICE_ID)
+        ts = datetime.datetime.fromtimestamp(cond.epoch, tz=datetime.timezone.utc)
+        print(f"Time:        {ts:%Y-%m-%d %H:%M} UTC")
+        print(f"Temperature: {cond.temperature} °C  (feels like {cond.heat_index} °C)")
+        print(f"Humidity:    {cond.humidity} %")
+        print(f"Pressure:    {cond.pressure} hPa")
+        print(f"Wind:        {cond.wind_speed_avg} m/s avg, {cond.wind_gust} m/s gust @ {cond.wind_direction_avg}°")
+        print(f"Rain:        {cond.rain} mm  ({cond.rain_rate} mm/h)")
+        print(f"UV index:    {cond.uv_index}")
+        print(f"Solar rad:   {cond.solar_radiation} W/m²")
+    except WeathercloudError as exc:
+        print(f"Error: {exc}")
 
-    # ---------------------------------------------------------
-    # 4. STATISTICAL HISTOGRAMS / EXTREMES (GET /device/stats)
-    # ---------------------------------------------------------
-    print_section("PERIOD MIN/MAX STATISTICS")
+    # ------------------------------------------------------------------
+    # 3. Period stats (raw dict — too many keys for a dataclass)
+    # ------------------------------------------------------------------
+    print("\n=== Today's Extremes ===")
     try:
         stats = client.get_device_stats(DEVICE_ID)
-        
-        # Weathercloud returns records as [unix_timestamp, value]
-        def format_tuple(stat_tuple):
-            if not stat_tuple or len(stat_tuple) < 2:
+
+        def fmt(entry: list) -> str:
+            if not entry or len(entry) < 2:
                 return "N/A"
-            ts, val = stat_tuple
-            time_str = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).strftime('%H:%M UTC')
-            return f"{val} [at {time_str}]"
+            ts = datetime.datetime.fromtimestamp(entry[0], tz=datetime.timezone.utc)
+            return f"{entry[1]}  (at {ts:%H:%M} UTC)"
 
-        print(f"Today's Temp Range:  Min: {format_tuple(stats.get('temp_day_min'))} | Max: {format_tuple(stats.get('temp_day_max'))}")
-        print(f"Today's Max Wind:    {format_tuple(stats.get('wspd_day_max'))}")
-        print(f"Today's Total Rain:  {stats.get('rain_day_total', [0, 'N/A'])[1]} mm")
-        print(f"Month Total Rain:    {stats.get('rain_month_total', [0, 'N/A'])[1]} mm")
-        print(f"Year Max Temp:       {format_tuple(stats.get('temp_year_max'))}")
-    except Exception as e:
-        print(f"[-] Failed to parse statistical data points: {e}")
+        print(f"Temp min/max:  {fmt(stats.get('temp_day_min'))} / {fmt(stats.get('temp_day_max'))}")
+        print(f"Wind max:      {fmt(stats.get('wspd_day_max'))}")
+        print(f"Rain today:    {stats.get('rain_day_total', [0, 'N/A'])[1]} mm")
+    except WeathercloudError as exc:
+        print(f"Error: {exc}")
 
-    # ---------------------------------------------------------
-    # 5. 6-DAY REGIONAL FORECAST (GET /forecast/daily)
-    # ---------------------------------------------------------
-    print_section("6-DAY WEATHER FORECAST (WMO)")
+    # ------------------------------------------------------------------
+    # 4. 6-day forecast
+    # ------------------------------------------------------------------
+    print("\n=== 6-Day Forecast ===")
     try:
-        forecast_data = client.get_daily_forecast(DEVICE_ID)
-        print(f"Forecast Location Target: {forecast_data.get('location', {}).get('name')}")
-        
-        forecast_days = forecast_data.get("forecast", {})
-        for date_str, day_info in sorted(forecast_days.items()):
-            w_code = day_info.get("weather", {}).get("code", "Unknown")
-            temps = day_info.get("temperature", {})
-            print(f"  {date_str} -> Max: {temps.get('max')}°C | Min: {temps.get('min')}°C | WMO Code: {w_code}")
-    except Exception as e:
-        print(f"[-] Forecast data layer empty or unavailable: {e}")
+        forecast = client.get_forecast(DEVICE_ID)
+        location = forecast.get("location", {}).get("name", "?")
+        print(f"Location: {location}")
+        for date, day in sorted(forecast.get("forecast", {}).items()):
+            t = day.get("temperature", {})
+            code = day.get("weather", {}).get("code", "?")
+            print(f"  {date}  max {t.get('max')}°C  min {t.get('min')}°C  (WMO {code})")
+    except WeathercloudError as exc:
+        print(f"Error: {exc}")
 
-    # ---------------------------------------------------------
-    # 6. HISTORICAL TIME-SERIES HOURLY AGGREGATION (POST /device/evolution)
-    # ---------------------------------------------------------
-    print_section("HOURLY HISTORY EVOLUTION (LAST 24 HOURS)")
+    # ------------------------------------------------------------------
+    # 5. Temperature history — last 24 h
+    # ------------------------------------------------------------------
+    print("\n=== Temperature History (last 24h) ===")
     try:
-        # Code 101 pulls the core temperature time-series history
-        evolution = client.get_historical_evolution(DEVICE_ID, variable_code=101, period="day")
-        data_block = evolution.get("data", {})
-        print(f"Timezone: {data_block.get('timezone')}")
-        
-        # Display summary calculations generated by the server
-        summary = data_block.get("summary", {}).get("101", {})
-        print(f"Server Aggregation Summary -> Samples: {summary.get('samples')} | Min: {summary.get('min')}°C | Max: {summary.get('max')}°C")
-        
-        # Display the actual hourly time-series entries
-        hourly_values = data_block.get("values", {})
-        print("  Sample Trend History:")
-        
-        # Sort by timestamp keys and show up to the first 5 records
-        sorted_hours = sorted(hourly_values.keys())
-        for ts_str in sorted_hours[:5]:
-            hour_time = datetime.datetime.fromtimestamp(int(ts_str), tz=datetime.timezone.utc)
-            # Drill into variable entry 101 -> stats block
-            stats_101 = hourly_values[ts_str].get("101", {}).get("stats", {})
-            print(f"    {hour_time.strftime('%H:%M')} UTC -> Avg: {stats_101.get('sum')}°C | Range: {stats_101.get('min')}°C to {stats_101.get('max')}°C")
-            
-        if len(sorted_hours) > 5:
-            print(f"    ... [{len(sorted_hours) - 5} more hourly data points parsed]")
-            
-    except Exception as e:
-        print(f"[-] Could not unpack time-series arrays: {e}")
+        evo = client.get_evolution(DEVICE_ID, VariableCode.TEMPERATURE, period="day")
+        summary = evo.get("data", {}).get("summary", {}).get("101", {})
+        print(f"Min: {summary.get('min')} °C   Max: {summary.get('max')} °C   Samples: {summary.get('samples')}")
+    except WeathercloudError as exc:
+        print(f"Error: {exc}")
 
-    # ---------------------------------------------------------
-    # 7. REGIONAL DISCOVERY / RADIUS SCANNING (GET /page/coordinates/...)
-    # ---------------------------------------------------------
-    print_section("DISCOVERING NEARBY STATIONS")
+    # ------------------------------------------------------------------
+    # 6. Nearby stations
+    # ------------------------------------------------------------------
+    print("\n=== Nearby Stations (10 km) ===")
     try:
-        # Scan near coordinate zone (example coordinates near Ingelmunster, Belgium)
-        scan_results = client.get_nearby_stations(lat=50.9475, lon=3.1205, distance_km=10)
-        devices_found = scan_results.get("devices", [])
-        
-        print(f"Found {len(devices_found)} stations within a 10km radius:")
-        for neighbor in devices_found[:3]:
-            # WARNING: Values inside the coordinate/page sub-components are 
-            # returned as strings containing integers multiplied by 10.
-            raw_temp = neighbor.get("values", {}).get("temp")
-            scaled_temp = float(raw_temp) / 10.0 if raw_temp else "N/A"
-            
-            print(f"  - [{neighbor.get('code')}] {neighbor.get('name')} ({neighbor.get('city')})")
-            print(f"    Distance: {neighbor.get('data')} km away | Temperature: {scaled_temp} °C")
-            
-        if len(devices_found) > 3:
-            print(f"  ... and {len(devices_found) - 3} other nearby stations.")
-            
-    except Exception as e:
-        print(f"[-] Geographic discovery function returned an error: {e}")
+        nearby = client.get_nearby_stations(lat=50.9475, lon=3.1205, distance_km=10)
+        for dev in nearby.get("devices", [])[:5]:
+            raw_temp = dev.get("values", {}).get("temp")
+            temp = f"{float(raw_temp) / 10:.1f} °C" if raw_temp else "N/A"
+            print(f"  [{dev.get('code')}] {dev.get('name')} — {dev.get('data')} km  {temp}")
+    except WeathercloudError as exc:
+        print(f"Error: {exc}")
+
 
 if __name__ == "__main__":
     main()
