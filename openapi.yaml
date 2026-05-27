@@ -1,0 +1,635 @@
+openapi: 3.0.3
+info:
+  title: Weathercloud Unofficial API
+  description: |
+    Reverse-engineered API for [app.weathercloud.net](https://app.weathercloud.net).
+
+    **No authentication required** — all endpoints work without any CSRF token or login.
+
+    **Device ID**: The numeric ID in the URL, e.g. `5726468552` from `app.weathercloud.net/d5726468552`.
+
+    ---
+
+    ### Try it out
+    Requests must go through the local proxy (handles CORS):
+    ```
+    pip install flask
+    python proxy.py
+    ```
+    Then use the **Servers** dropdown above to select `http://localhost:8765/proxy`.
+
+    ### Import into Postman
+    **File → Import** → upload `openapi.yaml` (or paste the raw URL of this file).
+
+    ---
+
+    > **Home Assistant** — most useful endpoints:
+    > - `GET /device/values/{deviceId}` — live sensor readings
+    > - `GET /device/stats` — current + daily/monthly/yearly min/max
+    > - `GET /device/info/{deviceId}` — station metadata
+  version: "1.0.0"
+  contact:
+    name: Unofficial / reverse-engineered from HAR captures
+  license:
+    name: Unofficial — use at your own risk
+
+servers:
+  - url: http://localhost:8765/proxy
+    description: Local proxy — run `python proxy.py` first (enables Try it out)
+
+tags:
+  - name: Device (live)
+    description: Real-time and current sensor data — most useful for Home Assistant
+  - name: Device (history)
+    description: Historical data and time-series
+  - name: Forecast
+    description: Weather forecast
+  - name: Map
+    description: Map / nearby station discovery
+  - name: Pages
+    description: Station listing pages
+
+paths:
+
+  /device/values/{deviceId}:
+    get:
+      tags: [Device (live)]
+      summary: Current sensor readings ⭐
+      description: |
+        Returns the latest sensor values for a device. **No CSRF token needed.**
+        This is the primary endpoint for a Home Assistant sensor integration.
+      parameters:
+        - $ref: '#/components/parameters/deviceIdPath'
+        - $ref: '#/components/parameters/xRequestedWith'
+      responses:
+        "200":
+          description: Current weather readings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceValues'
+              example:
+                epoch: 1779825116
+                temp: 24.8
+                dew: 15.2
+                chill: 24.8
+                heat: 24.8
+                hum: 55
+                bar: 1024.9
+                wdir: 344
+                wspd: 0.6
+                wspdavg: 0.6
+                wspdhi: 1.0
+                rainrate: 0
+                rain: 0
+                solarrad: 0.0
+                uvi: 0
+                wdiravg: 344
+
+  /device/stats:
+    get:
+      tags: [Device (live)]
+      summary: Current + min/max statistics ⭐
+      description: |
+        Returns current values plus day/month/year min and max for all sensors.
+        Each value is a `[unix_timestamp, value]` tuple.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "5726468552"
+        - $ref: '#/components/parameters/xRequestedWith'
+      responses:
+        "200":
+          description: Statistics for all sensors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceStats'
+
+  /device/info/{deviceId}:
+    get:
+      tags: [Device (live)]
+      summary: Station metadata ⭐
+      description: Station name, location, elevation, equipment info.
+      parameters:
+        - $ref: '#/components/parameters/deviceIdPath'
+        - $ref: '#/components/parameters/xRequestedWith'
+      responses:
+        "200":
+          description: Station metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceInfo'
+
+  /device/wind:
+    get:
+      tags: [Device (live)]
+      summary: Wind rose data
+      description: Wind direction distribution data for the wind rose chart.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "5726468552"
+        - $ref: '#/components/parameters/xRequestedWith'
+      responses:
+        "200":
+          description: Wind rose data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WindData'
+
+  /device/ajaxupdatedate:
+    post:
+      tags: [Device (live)]
+      summary: Last update time + status
+      description: Returns seconds since last update and device online status.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [d]
+              properties:
+                d:
+                  type: string
+                  description: Device ID
+                  example: "5726468552"
+      responses:
+        "200":
+          description: Update date info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  update:
+                    type: integer
+                    description: Seconds since last update
+                    example: 71
+                  status:
+                    type: string
+                    description: '"1" = online, "2" = recently online, "3" = offline'
+                    example: "2"
+                  server_time:
+                    type: integer
+                    description: Current server Unix timestamp
+                    example: 1779825187
+
+  /device/ajaxprofile:
+    post:
+      tags: [Device (live)]
+      summary: Station owner profile
+      description: Returns observer name, follower count, and device brand/model.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [d]
+              properties:
+                d:
+                  type: string
+                  example: "5726468552"
+      responses:
+        "200":
+          description: Profile info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceProfile'
+              example:
+                observer:
+                  name: "Gino Wallaert"
+                  nickname: "Ginometeo"
+                  company: ""
+                followers:
+                  number: "1"
+                device:
+                  brand: "Other"
+                  model: "Other"
+
+  /device/evolution:
+    post:
+      tags: [Device (history)]
+      summary: Time-series history for a variable
+      description: |
+        Returns hourly aggregated history for a given variable and period.
+        
+        **Variable codes:**
+        | Code | Sensor |
+        |------|--------|
+        | 101  | Temperature (°C) |
+        | 201  | Humidity (%) |
+        | 541  | Dew point (°C) |
+        | 641  | Barometric pressure (hPa) |
+        | 701  | Wind speed (m/s) |
+        | 6001 | Wind direction (°) |
+        | 6501 | Wind gust / high speed (m/s) |
+        | 801  | Rain (mm) |
+        | 811  | Rain rate (mm/h) |
+        | 1001 | Solar radiation (W/m²) |
+        | 1101 | UV index |
+        
+        **Period values:** `day`, `week`, `month`, `year`
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [device, variable, period]
+              properties:
+                device:
+                  type: string
+                  example: "5726468552"
+                variable:
+                  type: integer
+                  enum: [101, 201, 541, 641, 701, 6001, 6501, 801, 811, 1001, 1101]
+                  example: 101
+                period:
+                  type: string
+                  enum: [day, week, month, year]
+                  example: day
+      responses:
+        "200":
+          description: Time-series evolution data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvolutionResponse'
+
+  /forecast/daily:
+    get:
+      tags: [Forecast]
+      summary: Daily weather forecast
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "5726468552"
+        - $ref: '#/components/parameters/xRequestedWith'
+      responses:
+        "200":
+          description: Daily forecast
+
+  /map/devices:
+    post:
+      tags: [Map]
+      summary: Stations on map within area
+      description: Returns stations visible on the map for a given location bounding box.
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                user:
+                  type: string
+                  description: Filter by user (empty = all)
+                location:
+                  type: string
+                  description: "lat,lon,zoom format"
+                  example: "50.9,3.1,10"
+      responses:
+        "200":
+          description: List of nearby stations
+
+  /map/bgdevices:
+    post:
+      tags: [Map]
+      summary: Background/inactive stations on map
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                user:
+                  type: string
+      responses:
+        "200":
+          description: List of inactive stations
+
+  /map/metars:
+    post:
+      tags: [Map]
+      summary: METAR airport observations on map
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: METAR data
+
+  /page/coordinates/latitude/{lat}/longitude/{lon}/distance/{km}:
+    get:
+      tags: [Pages]
+      summary: Stations near coordinates
+      parameters:
+        - name: lat
+          in: path
+          required: true
+          schema:
+            type: number
+          example: 50.9475
+        - name: lon
+          in: path
+          required: true
+          schema:
+            type: number
+          example: 3.1205
+        - name: km
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 5
+      responses:
+        "200":
+          description: Nearby stations list (HTML page)
+
+  /page/popular/country/{country}/period/{period}:
+    get:
+      tags: [Pages]
+      summary: Popular stations by country
+      parameters:
+        - name: country
+          in: path
+          required: true
+          schema:
+            type: string
+          example: BE
+        - name: period
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [day, week, month]
+          example: day
+      responses:
+        "200":
+          description: Popular stations (HTML)
+
+  /page/newest/country/{country}:
+    get:
+      tags: [Pages]
+      summary: Newest stations by country
+      parameters:
+        - name: country
+          in: path
+          required: true
+          schema:
+            type: string
+          example: BE
+      responses:
+        "200":
+          description: Newest stations (HTML)
+
+  /page/followers/country/{country}:
+    get:
+      tags: [Pages]
+      summary: Most followed stations by country
+      parameters:
+        - name: country
+          in: path
+          required: true
+          schema:
+            type: string
+          example: BE
+      responses:
+        "200":
+          description: Most followed stations (HTML)
+
+  /page/lastviews:
+    get:
+      tags: [Pages]
+      summary: Recently viewed stations
+      responses:
+        "200":
+          description: Last viewed stations (HTML)
+
+  /page/own:
+    get:
+      tags: [Pages]
+      summary: Own stations (requires login)
+      responses:
+        "200":
+          description: Your stations (HTML)
+
+components:
+  parameters:
+    deviceIdPath:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: "5726468552"
+    xRequestedWith:
+      name: X-Requested-With
+      in: header
+      required: false
+      schema:
+        type: string
+        default: XMLHttpRequest
+
+  schemas:
+    DeviceValues:
+      type: object
+      description: Live sensor readings
+      properties:
+        epoch:
+          type: integer
+          description: Unix timestamp of reading
+        temp:
+          type: number
+          description: Temperature (°C)
+        dew:
+          type: number
+          description: Dew point (°C)
+        chill:
+          type: number
+          description: Wind chill (°C)
+        heat:
+          type: number
+          description: Heat index (°C)
+        hum:
+          type: integer
+          description: Relative humidity (%)
+        bar:
+          type: number
+          description: Barometric pressure (hPa)
+        wdir:
+          type: integer
+          description: Instantaneous wind direction (°)
+        wdiravg:
+          type: integer
+          description: Average wind direction (°)
+        wspd:
+          type: number
+          description: Instantaneous wind speed (m/s)
+        wspdavg:
+          type: number
+          description: Average wind speed (m/s)
+        wspdhi:
+          type: number
+          description: Wind gust / high speed (m/s)
+        rainrate:
+          type: number
+          description: Rain rate (mm/h)
+        rain:
+          type: number
+          description: Total rain (mm)
+        solarrad:
+          type: number
+          description: Solar radiation (W/m²)
+        uvi:
+          type: integer
+          description: UV index
+
+    DeviceStats:
+      type: object
+      description: |
+        Each sensor has _current, _day_max, _day_min, _month_max, _month_min, _year_max, _year_min keys.
+        Values are [unix_timestamp, value] tuples.
+      properties:
+        last_update:
+          type: integer
+        temp_current:
+          $ref: '#/components/schemas/TimestampValue'
+        temp_day_max:
+          $ref: '#/components/schemas/TimestampValue'
+        temp_day_min:
+          $ref: '#/components/schemas/TimestampValue'
+        hum_current:
+          $ref: '#/components/schemas/TimestampValue'
+        bar_current:
+          $ref: '#/components/schemas/TimestampValue'
+        rain_day_total:
+          $ref: '#/components/schemas/TimestampValue'
+        rain_month_total:
+          $ref: '#/components/schemas/TimestampValue'
+        rain_year_total:
+          $ref: '#/components/schemas/TimestampValue'
+        solarrad_day_hours:
+          $ref: '#/components/schemas/TimestampValue'
+
+    TimestampValue:
+      type: array
+      description: "[unix_timestamp, value]"
+      items:
+        type: number
+      minItems: 2
+      maxItems: 2
+      example: [1779825116, 24.8]
+
+    DeviceInfo:
+      type: object
+      description: Station metadata
+      properties:
+        name:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+        lat:
+          type: number
+        lon:
+          type: number
+        alt:
+          type: number
+          description: Altitude (m)
+        timezone:
+          type: string
+
+    DeviceProfile:
+      type: object
+      properties:
+        observer:
+          type: object
+          properties:
+            name:
+              type: string
+            nickname:
+              type: string
+            company:
+              type: string
+        followers:
+          type: object
+          properties:
+            number:
+              type: string
+        device:
+          type: object
+          properties:
+            brand:
+              type: string
+            model:
+              type: string
+
+    WindData:
+      type: object
+      properties:
+        date:
+          type: integer
+          description: Unix timestamp (start of period)
+        values:
+          type: array
+          description: 16 compass directions, each with sum and scale array
+          items:
+            type: object
+            properties:
+              sum:
+                type: number
+              scale:
+                type: array
+                items:
+                  type: integer
+
+    EvolutionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            timezone:
+              type: string
+              example: "Europe/Brussels"
+            summary:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  samples:
+                    type: integer
+                  sum:
+                    type: number
+                  min:
+                    type: number
+                  min_time:
+                    type: integer
+                  max:
+                    type: number
+                  max_time:
+                    type: integer
+            values:
+              type: object
+              description: Keyed by Unix timestamp (hour buckets)
+              additionalProperties:
+                type: object
