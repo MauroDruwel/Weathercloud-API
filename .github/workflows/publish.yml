@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/weathercloud-py
+      url: https://pypi.org/p/weathercloud
     permissions:
       id-token: write  # required for OIDC trusted publishing
 
