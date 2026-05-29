@@ -55,11 +55,40 @@ def test_get_current_conditions_returns_typed_dataclass(client):
 
 
 @responses.activate
-def test_get_current_conditions_missing_key_raises(client):
-    payload = {k: v for k, v in VALUES_PAYLOAD.items() if k != "temp"}
+def test_get_current_conditions_missing_keys_become_none(client):
+    payload = {"epoch": 1748358122, "temp": "22.8", "hum": "62"}
     responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=payload)
 
-    with pytest.raises(WeathercloudError, match="Unexpected /device/values"):
+    cond = client.get_current_conditions(DEVICE_ID)
+
+    assert cond.temperature == 22.8
+    assert cond.humidity == 62
+    # Sensors the station doesn't report are None, not errors.
+    assert cond.pressure is None
+    assert cond.wind_gust is None
+    assert cond.uv_index is None
+    assert cond.rain is None
+
+
+@responses.activate
+def test_get_current_conditions_unparseable_values_become_none(client):
+    payload = dict(VALUES_PAYLOAD, temp="", hum="n/a", uvi=None)
+    responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=payload)
+
+    cond = client.get_current_conditions(DEVICE_ID)
+
+    assert cond.temperature is None
+    assert cond.humidity is None
+    assert cond.uv_index is None
+    # Other valid readings still parse.
+    assert cond.wind_gust == 1.4
+
+
+@responses.activate
+def test_get_current_conditions_non_object_raises(client):
+    responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=["unexpected"])
+
+    with pytest.raises(WeathercloudError, match="Expected a JSON object"):
         client.get_current_conditions(DEVICE_ID)
 
 
@@ -130,6 +159,33 @@ def test_get_station_info_unknown_status(client):
 
     info = client.get_station_info(DEVICE_ID, scrape_name=False)
     assert info.status == "unknown"
+
+
+@responses.activate
+def test_get_station_info_missing_device_fields_dont_fail(client):
+    responses.get(f"{BASE}/device/info/{DEVICE_ID}", json={})
+
+    info = client.get_station_info(DEVICE_ID, scrape_name=False)
+
+    assert info.city == ""
+    assert info.altitude == ""
+    assert info.status == "unknown"
+    assert info.seconds_since_update == 0
+    assert info.account_type == 0
+
+
+@responses.activate
+def test_get_station_info_bad_numeric_fields_dont_fail(client):
+    responses.get(
+        f"{BASE}/device/info/{DEVICE_ID}",
+        json={"device": {"update": "n/a", "account": "", "city": None}},
+    )
+
+    info = client.get_station_info(DEVICE_ID, scrape_name=False)
+
+    assert info.seconds_since_update == 0
+    assert info.account_type == 0
+    assert info.city == ""
 
 
 @responses.activate

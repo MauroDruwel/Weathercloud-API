@@ -19,6 +19,29 @@ _STATUS_MAP = {"1": "online", "2": "recently_online", "3": "offline"}
 Timeout = float | tuple[float, float] | None
 
 
+def _to_float(value: Any) -> float | None:
+    """Coerce an API value to ``float``, returning ``None`` if missing/invalid."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(value: Any) -> int | None:
+    """Coerce an API value to ``int``, returning ``None`` if missing/invalid.
+
+    Accepts float-like strings (e.g. ``"62.0"``) by truncating.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
 class WeathercloudClient:
     """Unofficial Python client for app.weathercloud.net.
 
@@ -111,29 +134,30 @@ class WeathercloudClient:
     # ------------------------------------------------------------------
 
     def get_current_conditions(self, device_id: str) -> CurrentConditions:
-        """Return typed live sensor readings — primary endpoint for HA integration."""
-        raw = self._get(f"/device/values/{device_id}")
-        try:
-            return CurrentConditions(
-                epoch=raw["epoch"],
-                temperature=float(raw["temp"]),
-                dew_point=float(raw["dew"]),
-                wind_chill=float(raw["chill"]),
-                heat_index=float(raw["heat"]),
-                humidity=int(raw["hum"]),
-                pressure=float(raw["bar"]),
-                wind_direction=int(raw["wdir"]),
-                wind_direction_avg=int(raw["wdiravg"]),
-                wind_speed=float(raw["wspd"]),
-                wind_speed_avg=float(raw["wspdavg"]),
-                wind_gust=float(raw["wspdhi"]),
-                rain_rate=float(raw["rainrate"]),
-                rain=float(raw["rain"]),
-                solar_radiation=float(raw["solarrad"]),
-                uv_index=int(raw["uvi"]),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise WeathercloudError(f"Unexpected /device/values response: {exc}") from exc
+        """Return typed live sensor readings — primary endpoint for HA integration.
+
+        Stations only report the sensors they have, so any reading the station
+        does not provide is returned as ``None`` instead of raising.
+        """
+        raw = self._get_dict(f"/device/values/{device_id}")
+        return CurrentConditions(
+            epoch=_to_int(raw.get("epoch")),
+            temperature=_to_float(raw.get("temp")),
+            dew_point=_to_float(raw.get("dew")),
+            wind_chill=_to_float(raw.get("chill")),
+            heat_index=_to_float(raw.get("heat")),
+            humidity=_to_int(raw.get("hum")),
+            pressure=_to_float(raw.get("bar")),
+            wind_direction=_to_int(raw.get("wdir")),
+            wind_direction_avg=_to_int(raw.get("wdiravg")),
+            wind_speed=_to_float(raw.get("wspd")),
+            wind_speed_avg=_to_float(raw.get("wspdavg")),
+            wind_gust=_to_float(raw.get("wspdhi")),
+            rain_rate=_to_float(raw.get("rainrate")),
+            rain=_to_float(raw.get("rain")),
+            solar_radiation=_to_float(raw.get("solarrad")),
+            uv_index=_to_int(raw.get("uvi")),
+        )
 
     def get_station_info(self, device_id: str, scrape_name: bool = True) -> StationInfo:
         """Return typed station metadata.
@@ -143,23 +167,20 @@ class WeathercloudClient:
             scrape_name: Fetch the station name from HTML (one extra request).
                 Set to False to skip and use the device_id as the name instead.
         """
-        raw = self._get(f"/device/info/{device_id}")
-        if not isinstance(raw, dict):
-            raise WeathercloudError(f"Unexpected /device/info response: {raw!r}")
-        dev = raw.get("device", {})
+        raw = self._get_dict(f"/device/info/{device_id}")
+        dev = raw.get("device") or {}
+        if not isinstance(dev, dict):
+            dev = {}
         name = self.get_station_name(device_id) if scrape_name else device_id
-        try:
-            return StationInfo(
-                device_id=device_id,
-                name=name,
-                city=dev.get("city", ""),
-                altitude=dev.get("altitude", ""),
-                status=_STATUS_MAP.get(str(dev.get("status", "")), "unknown"),
-                seconds_since_update=int(dev.get("update", 0)),
-                account_type=int(dev.get("account", 0)),
-            )
-        except (TypeError, ValueError) as exc:
-            raise WeathercloudError(f"Unexpected /device/info response: {exc}") from exc
+        return StationInfo(
+            device_id=device_id,
+            name=name,
+            city=str(dev.get("city") or ""),
+            altitude=str(dev.get("altitude") or ""),
+            status=_STATUS_MAP.get(str(dev.get("status", "")), "unknown"),
+            seconds_since_update=_to_int(dev.get("update")) or 0,
+            account_type=_to_int(dev.get("account")) or 0,
+        )
 
     def get_station_name(self, device_id: str) -> str:
         """Scrape the station name from the HTML page.

@@ -52,18 +52,20 @@ client = WeathercloudClient(timeout=30)   # seconds; default is 10
 
 ### `get_current_conditions(device_id)` → `CurrentConditions`
 
-Live sensor readings as a typed dataclass — the one you'll call most.
+Live sensor readings as a typed dataclass — the one you'll call most. Stations
+only report the sensors they actually have, so **every field is optional**: a
+reading the station doesn't provide comes back as `None` rather than raising.
 
 | Field | Type | Unit | Field | Type | Unit |
 |---|---|---|---|---|---|
-| `temperature` | `float` | °C | `pressure` | `float` | hPa |
-| `dew_point` | `float` | °C | `wind_speed` | `float` | m/s |
-| `wind_chill` | `float` | °C | `wind_speed_avg` | `float` | m/s |
-| `heat_index` | `float` | °C | `wind_gust` | `float` | m/s |
-| `humidity` | `int` | % | `wind_direction` | `int` | ° |
-| `rain` | `float` | mm | `rain_rate` | `float` | mm/h |
-| `solar_radiation` | `float` | W/m² | `uv_index` | `int` | — |
-| `epoch` | `int` | unix ts | | | |
+| `temperature` | `float \| None` | °C | `pressure` | `float \| None` | hPa |
+| `dew_point` | `float \| None` | °C | `wind_speed` | `float \| None` | m/s |
+| `wind_chill` | `float \| None` | °C | `wind_speed_avg` | `float \| None` | m/s |
+| `heat_index` | `float \| None` | °C | `wind_gust` | `float \| None` | m/s |
+| `humidity` | `int \| None` | % | `wind_direction` | `int \| None` | ° |
+| `rain` | `float \| None` | mm | `rain_rate` | `float \| None` | mm/h |
+| `solar_radiation` | `float \| None` | W/m² | `uv_index` | `int \| None` | — |
+| `epoch` | `int \| None` | unix ts | | | |
 
 ### `get_station_info(device_id, scrape_name=True)` → `StationInfo`
 
