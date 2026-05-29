@@ -3,7 +3,8 @@ Weathercloud library usage example.
 Demonstrates both the high-level typed API and raw dict access.
 """
 import datetime
-from weathercloud import WeathercloudClient, WeathercloudError, VariableCode
+
+from weathercloud import VariableCode, WeathercloudClient, WeathercloudError
 
 DEVICE_ID = "5726468552"
 
@@ -35,7 +36,10 @@ def main() -> None:
         print(f"Temperature: {cond.temperature} °C  (feels like {cond.heat_index} °C)")
         print(f"Humidity:    {cond.humidity} %")
         print(f"Pressure:    {cond.pressure} hPa")
-        print(f"Wind:        {cond.wind_speed_avg} m/s avg, {cond.wind_gust} m/s gust @ {cond.wind_direction_avg}°")
+        print(
+            f"Wind:        {cond.wind_speed_avg} m/s avg, "
+            f"{cond.wind_gust} m/s gust @ {cond.wind_direction_avg}°"
+        )
         print(f"Rain:        {cond.rain} mm  ({cond.rain_rate} mm/h)")
         print(f"UV index:    {cond.uv_index}")
         print(f"Solar rad:   {cond.solar_radiation} W/m²")
@@ -83,7 +87,10 @@ def main() -> None:
     try:
         evo = client.get_evolution(DEVICE_ID, VariableCode.TEMPERATURE, period="day")
         summary = evo.get("data", {}).get("summary", {}).get("101", {})
-        print(f"Min: {summary.get('min')} °C   Max: {summary.get('max')} °C   Samples: {summary.get('samples')}")
+        print(
+            f"Min: {summary.get('min')} °C   Max: {summary.get('max')} °C   "
+            f"Samples: {summary.get('samples')}"
+        )
     except WeathercloudError as exc:
         print(f"Error: {exc}")
 

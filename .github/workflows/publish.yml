@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build distribution
@@ -14,13 +17,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - name: Install build
-        run: pip install build
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
 
       - name: Build package
         run: python -m build
+
+      - name: Check metadata
+        run: twine check dist/*
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

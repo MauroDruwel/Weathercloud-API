@@ -7,10 +7,11 @@ Runs on http://localhost:8765
 - ANY /proxy/*    → proxied to https://app.weathercloud.net/*
 """
 
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
-from flask import Flask, request, Response, send_from_directory
+
+from flask import Flask, Response, request, send_from_directory
 
 app = Flask(__name__)
 

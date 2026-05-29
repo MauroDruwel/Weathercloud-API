@@ -1,88 +1,40 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from enum import IntEnum
+from types import TracebackType
 from typing import Any
 
 import requests
 
-__version__ = "0.1.0"
-__all__ = [
-    "WeathercloudClient",
-    "WeathercloudError",
-    "VariableCode",
-    "CurrentConditions",
-    "StationInfo",
-]
+from .exceptions import WeathercloudError
+from .models import CurrentConditions, StationInfo, VariableCode
+
+__all__ = ["WeathercloudClient"]
 
 _BASE_URL = "https://app.weathercloud.net"
-_DEFAULT_TIMEOUT = 10
+_DEFAULT_TIMEOUT = 10.0
 _STATUS_MAP = {"1": "online", "2": "recently_online", "3": "offline"}
 
-
-class WeathercloudError(Exception):
-    """Raised when the Weathercloud API returns an unexpected response."""
-
-
-class VariableCode(IntEnum):
-    """Sensor variable codes used by the /device/evolution endpoint."""
-    TEMPERATURE = 101
-    HUMIDITY = 201
-    DEW_POINT = 541
-    PRESSURE = 641
-    WIND_SPEED = 701
-    WIND_DIRECTION = 6001
-    WIND_GUST = 6501
-    RAIN = 801
-    RAIN_RATE = 811
-    SOLAR_RADIATION = 1001
-    UV_INDEX = 1101
-
-
-@dataclass
-class CurrentConditions:
-    """Live sensor readings from /device/values — maps directly to HA sensor entities."""
-    epoch: int
-    temperature: float       # °C
-    dew_point: float         # °C
-    wind_chill: float        # °C
-    heat_index: float        # °C
-    humidity: int            # %
-    pressure: float          # hPa
-    wind_direction: int      # ° instantaneous
-    wind_direction_avg: int  # ° averaged
-    wind_speed: float        # m/s instantaneous
-    wind_speed_avg: float    # m/s averaged
-    wind_gust: float         # m/s
-    rain_rate: float         # mm/h
-    rain: float              # mm total
-    solar_radiation: float   # W/m²
-    uv_index: int
-
-
-@dataclass
-class StationInfo:
-    """Station metadata combining /device/info and a scraped station name."""
-    device_id: str
-    name: str            # scraped from HTML — not available via JSON API
-    city: str
-    altitude: str        # metres (as string from API)
-    status: str          # "online" | "recently_online" | "offline"
-    seconds_since_update: int
-    account_type: int    # 0 = free, >0 = premium
+# Timeout accepted by requests: a single value, a (connect, read) pair, or None.
+Timeout = float | tuple[float, float] | None
 
 
 class WeathercloudClient:
     """Unofficial Python client for app.weathercloud.net.
 
     All public methods raise :exc:`WeathercloudError` on network or parse failures.
+
+    The client owns a :class:`requests.Session`. Use it as a context manager or
+    call :meth:`close` to release the underlying connection pool::
+
+        with WeathercloudClient() as client:
+            conditions = client.get_current_conditions("5726468552")
     """
 
     def __init__(
         self,
         base_url: str = _BASE_URL,
-        timeout: int = _DEFAULT_TIMEOUT,
+        timeout: Timeout = _DEFAULT_TIMEOUT,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
@@ -90,7 +42,27 @@ class WeathercloudClient:
         self._session.headers.update({
             "X-Requested-With": "XMLHttpRequest",
             "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
         })
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close the underlying :class:`requests.Session`."""
+        self._session.close()
+
+    def __enter__(self) -> WeathercloudClient:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -113,6 +85,18 @@ class WeathercloudClient:
         except requests.RequestException as exc:
             raise WeathercloudError(f"Request failed: {exc}") from exc
         return self._parse_json(resp)
+
+    def _get_dict(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = self._get(path, params)
+        if not isinstance(data, dict):
+            raise WeathercloudError(f"Expected a JSON object from {path}, got: {data!r}")
+        return data
+
+    def _post_dict(self, path: str, data: dict[str, Any]) -> dict[str, Any]:
+        result = self._post(path, data)
+        if not isinstance(result, dict):
+            raise WeathercloudError(f"Expected a JSON object from {path}, got: {result!r}")
+        return result
 
     @staticmethod
     def _parse_json(resp: requests.Response) -> Any:
@@ -160,17 +144,22 @@ class WeathercloudClient:
                 Set to False to skip and use the device_id as the name instead.
         """
         raw = self._get(f"/device/info/{device_id}")
+        if not isinstance(raw, dict):
+            raise WeathercloudError(f"Unexpected /device/info response: {raw!r}")
         dev = raw.get("device", {})
         name = self.get_station_name(device_id) if scrape_name else device_id
-        return StationInfo(
-            device_id=device_id,
-            name=name,
-            city=dev.get("city", ""),
-            altitude=dev.get("altitude", ""),
-            status=_STATUS_MAP.get(str(dev.get("status", "")), "unknown"),
-            seconds_since_update=int(dev.get("update", 0)),
-            account_type=int(dev.get("account", 0)),
-        )
+        try:
+            return StationInfo(
+                device_id=device_id,
+                name=name,
+                city=dev.get("city", ""),
+                altitude=dev.get("altitude", ""),
+                status=_STATUS_MAP.get(str(dev.get("status", "")), "unknown"),
+                seconds_since_update=int(dev.get("update", 0)),
+                account_type=int(dev.get("account", 0)),
+            )
+        except (TypeError, ValueError) as exc:
+            raise WeathercloudError(f"Unexpected /device/info response: {exc}") from exc
 
     def get_station_name(self, device_id: str) -> str:
         """Scrape the station name from the HTML page.
@@ -180,16 +169,16 @@ class WeathercloudClient:
         """
         url = f"{self._base_url}/d{device_id}"
         try:
-            resp = requests.get(
+            resp = self._session.get(
                 url,
                 timeout=self._timeout,
-                headers={"User-Agent": "Mozilla/5.0"},
+                headers={"Accept": "text/html"},
             )
             resp.raise_for_status()
         except requests.RequestException as exc:
             raise WeathercloudError(f"Failed to fetch station page: {exc}") from exc
 
-        match = re.search(r"<title>(.*?)</title>", resp.text, re.IGNORECASE)
+        match = re.search(r"<title>(.*?)</title>", resp.text, re.IGNORECASE | re.DOTALL)
         if match:
             return match.group(1).split(" - Weathercloud")[0].strip()
         return device_id
@@ -198,40 +187,40 @@ class WeathercloudClient:
     # Raw API methods — return dicts for full access to the API response
     # ------------------------------------------------------------------
 
-    def get_device_values(self, device_id: str) -> dict:
+    def get_device_values(self, device_id: str) -> dict[str, Any]:
         """Raw /device/values response. Prefer get_current_conditions() for typed access."""
-        return self._get(f"/device/values/{device_id}")
+        return self._get_dict(f"/device/values/{device_id}")
 
-    def get_device_stats(self, device_id: str) -> dict:
+    def get_device_stats(self, device_id: str) -> dict[str, Any]:
         """Current readings + day/month/year min–max.
 
         Each value is a ``[unix_timestamp, value]`` tuple.
         Key pattern: ``{sensor}_{period}_{type}`` e.g. ``temp_day_max``.
         """
-        return self._get("/device/stats", params={"code": device_id})
+        return self._get_dict("/device/stats", params={"code": device_id})
 
-    def get_device_info(self, device_id: str) -> dict:
+    def get_device_info(self, device_id: str) -> dict[str, Any]:
         """Raw /device/info response (device metadata + current values as strings)."""
-        return self._get(f"/device/info/{device_id}")
+        return self._get_dict(f"/device/info/{device_id}")
 
-    def get_wind_rose(self, device_id: str) -> dict:
+    def get_wind_rose(self, device_id: str) -> dict[str, Any]:
         """Wind direction distribution data for the wind rose chart."""
-        return self._get("/device/wind", params={"code": device_id})
+        return self._get_dict("/device/wind", params={"code": device_id})
 
-    def get_update_status(self, device_id: str) -> dict:
+    def get_update_status(self, device_id: str) -> dict[str, Any]:
         """Seconds since last update and online status."""
-        return self._post("/device/ajaxupdatedate", data={"d": device_id})
+        return self._post_dict("/device/ajaxupdatedate", data={"d": device_id})
 
-    def get_owner_profile(self, device_id: str) -> dict:
+    def get_owner_profile(self, device_id: str) -> dict[str, Any]:
         """Station owner name, nickname, follower count, and hardware brand/model."""
-        return self._post("/device/ajaxprofile", data={"d": device_id})
+        return self._post_dict("/device/ajaxprofile", data={"d": device_id})
 
     def get_evolution(
         self,
         device_id: str,
         variable: VariableCode | int,
         period: str = "day",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Time-series history (hourly buckets) for one sensor variable.
 
         Args:
@@ -239,27 +228,27 @@ class WeathercloudClient:
             variable: Sensor code — use :class:`VariableCode` or a raw integer.
             period: One of ``"day"``, ``"week"``, ``"month"``, ``"year"``.
         """
-        return self._post("/device/evolution", data={
+        return self._post_dict("/device/evolution", data={
             "device": device_id,
             "variable": int(variable),
             "period": period,
         })
 
-    def get_forecast(self, device_id: str) -> dict:
+    def get_forecast(self, device_id: str) -> dict[str, Any]:
         """6-day WMO daily forecast for the station's location."""
-        return self._get("/forecast/daily", params={"id": device_id})
+        return self._get_dict("/forecast/daily", params={"id": device_id})
 
     def get_nearby_stations(
         self,
         lat: float,
         lon: float,
         distance_km: int = 5,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Stations within *distance_km* of a coordinate.
 
         Note: sensor values inside each device's ``"values"`` dict are scaled
         ×10 — divide by 10 to get the real unit (e.g. ``temp: 281`` → 28.1 °C).
         """
-        return self._get(
+        return self._get_dict(
             f"/page/coordinates/latitude/{lat}/longitude/{lon}/distance/{distance_km}"
         )

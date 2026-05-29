@@ -1,11 +1,11 @@
-# weathercloud-py
+# weathercloud
 
 Unofficial Python client for [Weathercloud](https://app.weathercloud.net). No account needed.
 
 > Reverse-engineered from HAR captures. Not affiliated with Weathercloud.
 
 ```sh
-pip install weathercloud-py   # not on PyPI yet — clone and pip install -e .
+pip install weathercloud   # not on PyPI yet — clone and pip install -e .
 ```
 
 ---
@@ -21,6 +21,14 @@ cond = client.get_current_conditions("5726468552")
 print(cond.temperature)   # 22.8
 print(cond.humidity)      # 62
 print(cond.wind_gust)     # 1.4
+```
+
+The client owns a `requests.Session`. Use it as a context manager (or call
+`client.close()`) to release the connection pool when you're done:
+
+```python
+with WeathercloudClient(timeout=30) as client:
+    cond = client.get_current_conditions("5726468552")
 ```
 
 ---
@@ -143,6 +151,27 @@ METAR (airport) stations use ICAO codes (`EBBR`, `EGLL`, …) and work on most `
 - **Poll at most every 10 minutes** — that's how often free stations update
 - Default request timeout is 10 s — override with `WeathercloudClient(timeout=30)`
 - Based on the [reverse-engineered OpenAPI spec](./docs/openapi.yaml) in this repo
+
+---
+
+## Development
+
+The package is fully typed (ships `py.typed`) and lives under `src/weathercloud/`.
+
+```sh
+git clone https://github.com/MauroDruwel/Weathercloud-API
+cd Weathercloud-API
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+ruff check .      # lint
+mypy              # type-check
+pytest            # tests
+python -m build   # build sdist + wheel
+```
+
+CI runs lint, type-check, and the test matrix (Python 3.10–3.13) on every push
+and pull request.
 
 ---
 
