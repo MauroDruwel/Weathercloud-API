@@ -282,3 +282,68 @@ def test_context_manager_closes_session():
         session = c._session
     # close() on a requests.Session is idempotent; just ensure no error.
     session.close()
+
+
+# ------------------------------------------------------------------
+# ICAO / METAR routing
+# ------------------------------------------------------------------
+
+ICAO_ID = "LEPA"
+METAR_PAYLOAD = {
+    "epoch": 1780687800,
+    "temp": 21,
+    "dew": 13,
+    "chill": 21,
+    "heat": 20,
+    "hum": 60,
+    "wspdavg": 4,
+    "wspdhi": 0,
+    "wdiravg": 70,
+    "bar": 1016,
+    "rain": 0,
+    "vis": 100,
+    "rainrate": 0,
+}
+
+
+@responses.activate
+def test_get_device_values_uses_metar_endpoint_for_icao(client):
+    responses.get(f"{BASE}/metar/values/{ICAO_ID}", json=METAR_PAYLOAD)
+
+    result = client.get_device_values(ICAO_ID)
+
+    assert result["epoch"] == 1780687800
+    assert result["temp"] == 21
+    assert len(responses.calls) == 1
+    assert f"/metar/values/{ICAO_ID}" in responses.calls[0].request.url
+
+
+@responses.activate
+def test_get_current_conditions_uses_metar_endpoint_for_icao(client):
+    responses.get(f"{BASE}/metar/values/{ICAO_ID}", json=METAR_PAYLOAD)
+
+    cond = client.get_current_conditions(ICAO_ID)
+
+    assert isinstance(cond, CurrentConditions)
+    assert cond.temperature == 21.0
+    assert cond.humidity == 60
+    assert cond.epoch == 1780687800
+    assert f"/metar/values/{ICAO_ID}" in responses.calls[0].request.url
+
+
+@responses.activate
+def test_get_device_values_uses_device_endpoint_for_numeric_id(client):
+    responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=VALUES_PAYLOAD)
+
+    client.get_device_values(DEVICE_ID)
+
+    assert f"/device/values/{DEVICE_ID}" in responses.calls[0].request.url
+
+
+def test_values_path_icao_detection(client):
+    assert client._values_path("LEPA") == "/metar/values/LEPA"
+    assert client._values_path("EGLL") == "/metar/values/EGLL"
+    assert client._values_path("KJFK") == "/metar/values/KJFK"
+    assert client._values_path("5726468552") == "/device/values/5726468552"
+    assert client._values_path("lepa") == "/device/values/lepa"  # lowercase not ICAO
+    assert client._values_path("LEP") == "/device/values/LEP"    # 3 chars not ICAO

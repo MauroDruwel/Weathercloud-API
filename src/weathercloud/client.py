@@ -15,6 +15,10 @@ _BASE_URL = "https://app.weathercloud.net"
 _DEFAULT_TIMEOUT = 10.0
 _STATUS_MAP = {"1": "online", "2": "recently_online", "3": "offline"}
 
+# ICAO airport codes are 4 uppercase ASCII letters (e.g. LEPA, EGLL, KJFK).
+# Regular Weathercloud station IDs are numeric strings.
+_ICAO_RE = re.compile(r"^[A-Z]{4}$")
+
 # Timeout accepted by requests: a single value, a (connect, read) pair, or None.
 Timeout = float | tuple[float, float] | None
 
@@ -133,13 +137,23 @@ class WeathercloudClient:
     # High-level convenience methods (HA-ready)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _values_path(device_id: str) -> str:
+        """Return the correct values endpoint path for a given station ID."""
+        if _ICAO_RE.match(device_id):
+            return f"/metar/values/{device_id}"
+        return f"/device/values/{device_id}"
+
     def get_current_conditions(self, device_id: str) -> CurrentConditions:
         """Return typed live sensor readings — primary endpoint for HA integration.
 
         Stations only report the sensors they have, so any reading the station
         does not provide is returned as ``None`` instead of raising.
+
+        Automatically uses the METAR endpoint for ICAO airport codes
+        (4 uppercase letters, e.g. ``LEPA``).
         """
-        raw = self._get_dict(f"/device/values/{device_id}")
+        raw = self._get_dict(self._values_path(device_id))
         return CurrentConditions(
             epoch=_to_int(raw.get("epoch")),
             temperature=_to_float(raw.get("temp")),
@@ -209,8 +223,13 @@ class WeathercloudClient:
     # ------------------------------------------------------------------
 
     def get_device_values(self, device_id: str) -> dict[str, Any]:
-        """Raw /device/values response. Prefer get_current_conditions() for typed access."""
-        return self._get_dict(f"/device/values/{device_id}")
+        """Raw values response. Prefer get_current_conditions() for typed access.
+
+        Automatically uses ``/metar/values/{id}`` for ICAO airport codes
+        (4 uppercase letters, e.g. ``LEPA``) and ``/device/values/{id}``
+        for regular numeric station IDs.
+        """
+        return self._get_dict(self._values_path(device_id))
 
     def get_device_stats(self, device_id: str) -> dict[str, Any]:
         """Current readings + day/month/year min–max.

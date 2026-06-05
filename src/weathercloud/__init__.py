@@ -16,7 +16,7 @@ from .client import WeathercloudClient
 from .exceptions import WeathercloudError
 from .models import CurrentConditions, StationInfo, VariableCode
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __all__ = [
     "WeathercloudClient",
     "WeathercloudError",
