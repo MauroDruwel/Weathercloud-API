@@ -64,8 +64,49 @@ tags:
     description: Station listing pages
   - name: Miscellaneous
     description: Undocumented tricks and HTML scraping
+  - name: Authentication
+    description: User session and login endpoints
 
 paths:
+
+  /signin:
+    post:
+      tags: [Authentication]
+      summary: User login / authentication
+      description: |
+        Authenticates a user session to allow viewing private indoor sensors (`tempin`, `humin`, `heatin`) for the user's station.
+        This endpoint expects form urlencoded data and returns a `302 Found` redirect on successful login.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                "LoginForm[entity]":
+                  type: string
+                  description: Username or email address
+                "LoginForm[password]":
+                  type: string
+                  description: Account password
+                "LoginForm[rememberMe]":
+                  type: string
+                  enum: ["0", "1"]
+                  default: "1"
+                  description: Keep the user logged in
+              required:
+                - "LoginForm[entity]"
+                - "LoginForm[password]"
+      responses:
+        "302":
+          description: Successful authentication redirecting to user profile
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                description: Session cookies (e.g. `PHPSESSID`)
+        "200":
+          description: Authentication failed (renders login form with errors)
 
   /device/values/{deviceId}:
     get:
@@ -679,6 +720,15 @@ components:
         uvi:
           type: integer
           description: UV index
+        tempin:
+          type: number
+          description: Inside temperature (°C) — requires authentication
+        humin:
+          type: integer
+          description: Inside relative humidity (%) — requires authentication
+        heatin:
+          type: number
+          description: Inside heat index (°C) — requires authentication
 
     DeviceStats:
       type: object
@@ -687,7 +737,7 @@ components:
         All values are `[unix_timestamp, value]` tuples (`TimestampValue`).
 
         **Key pattern:** `{sensor}_{period}_{type}`
-        - Sensors: `temp`, `dew`, `chill`, `heat`, `hum`, `bar`, `wdir`, `wdiravg`, `wspd`, `wspdavg`, `wspdhi`, `rainrate`, `rain`, `solarrad`, `uvi`
+        - Sensors: `temp`, `tempin`, `dew`, `chill`, `heat`, `heatin`, `hum`, `humin`, `bar`, `wdir`, `wdiravg`, `wspd`, `wspdavg`, `wspdhi`, `rainrate`, `rain`, `solarrad`, `uvi`
         - Period types: `current`, `day_max`, `day_min`, `month_max`, `month_min`, `year_max`, `year_min`
         - Rain also has: `day_total`, `month_total`, `year_total`
         - Solarrad also has: `day_hours`, `month_hours`, `year_hours`
