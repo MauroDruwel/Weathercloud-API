@@ -31,6 +31,9 @@ VALUES_PAYLOAD = {
     "rain": "2.4",
     "solarrad": "320.0",
     "uvi": "3",
+    "tempin": "21.5",
+    "humin": "55",
+    "heatin": "22.0",
 }
 
 
@@ -52,6 +55,9 @@ def test_get_current_conditions_returns_typed_dataclass(client):
     assert cond.wind_gust == 1.4
     assert cond.uv_index == 3
     assert cond.epoch == 1748358122
+    assert cond.inside_temperature == 21.5
+    assert cond.inside_humidity == 55
+    assert cond.inside_heat_index == 22.0
 
 
 @responses.activate
@@ -347,3 +353,29 @@ def test_values_path_icao_detection(client):
     assert client._values_path("5726468552") == "/device/values/5726468552"
     assert client._values_path("lepa") == "/device/values/lepa"  # lowercase not ICAO
     assert client._values_path("LEP") == "/device/values/LEP"    # 3 chars not ICAO
+
+
+@responses.activate
+def test_login_success():
+    with WeathercloudClient(username="testuser", password="testpassword") as client:
+        # Mock GET / to initialize cookies
+        responses.get(f"{BASE}/", status=200)
+        # Mock POST /signin to authenticate
+        responses.post(f"{BASE}/signin", status=302, headers={"Location": "/"})
+        # Mock actual request
+        responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=VALUES_PAYLOAD)
+
+        cond = client.get_current_conditions(DEVICE_ID)
+        assert cond.inside_temperature == 21.5
+        assert len(responses.calls) == 3
+
+
+@responses.activate
+def test_login_failure():
+    with WeathercloudClient(username="testuser", password="testpassword") as client:
+        responses.get(f"{BASE}/", status=200)
+        # Mock login failed (e.g. returns 200 instead of 302 redirect)
+        responses.post(f"{BASE}/signin", status=200)
+
+        with pytest.raises(WeathercloudError, match="Login failed"):
+            client.get_current_conditions(DEVICE_ID)

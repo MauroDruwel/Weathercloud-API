@@ -14,6 +14,10 @@ __all__ = ["WeathercloudClient"]
 _BASE_URL = "https://app.weathercloud.net"
 _DEFAULT_TIMEOUT = 10.0
 _STATUS_MAP = {"1": "online", "2": "recently_online", "3": "offline"}
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+}
 
 # ICAO airport codes are 4 uppercase ASCII letters (e.g. LEPA, EGLL, KJFK).
 # Regular Weathercloud station IDs are numeric strings.
@@ -62,9 +66,14 @@ class WeathercloudClient:
         self,
         base_url: str = _BASE_URL,
         timeout: Timeout = _DEFAULT_TIMEOUT,
+        username: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self.username = username
+        self.password = password
+        self._logged_in = False
         self._session = requests.Session()
         self._session.headers.update({
             "X-Requested-With": "XMLHttpRequest",
@@ -91,11 +100,54 @@ class WeathercloudClient:
     ) -> None:
         self.close()
 
+    def login(self) -> None:
+        """Log in to app.weathercloud.net using the configured credentials."""
+        if not self.username or not self.password:
+            raise WeathercloudError("Username and password are required to log in")
+
+        # 1. GET base URL to initialize cookies
+        url = f"{self._base_url}/"
+        try:
+            resp = self._session.get(url, headers=_BROWSER_HEADERS, timeout=self._timeout)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise WeathercloudError(f"Failed to initialize session for login: {exc}") from exc
+
+        # 2. POST signin
+        signin_url = f"{self._base_url}/signin"
+        data = {
+            "LoginForm[entity]": self.username,
+            "LoginForm[password]": self.password,
+            "LoginForm[rememberMe]": "1",
+        }
+        try:
+            resp = self._session.post(
+                signin_url,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=self._timeout,
+                allow_redirects=False,
+            )
+            # A successful login redirects (status 302)
+            if resp.status_code != 302:
+                raise WeathercloudError(
+                    f"Login failed: invalid username or password (status: {resp.status_code})"
+                )
+        except requests.RequestException as exc:
+            raise WeathercloudError(f"Login request failed: {exc}") from exc
+
+        self._logged_in = True
+
+    def _ensure_logged_in(self) -> None:
+        if self.username and self.password and not self._logged_in:
+            self.login()
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        self._ensure_logged_in()
         url = f"{self._base_url}{path}"
         try:
             resp = self._session.get(url, params=params, timeout=self._timeout)
@@ -105,6 +157,7 @@ class WeathercloudClient:
         return self._parse_json(resp)
 
     def _post(self, path: str, data: dict[str, Any]) -> Any:
+        self._ensure_logged_in()
         url = f"{self._base_url}{path}"
         try:
             resp = self._session.post(url, data=data, timeout=self._timeout)
@@ -171,6 +224,9 @@ class WeathercloudClient:
             rain=_to_float(raw.get("rain")),
             solar_radiation=_to_float(raw.get("solarrad")),
             uv_index=_to_int(raw.get("uvi")),
+            inside_temperature=_to_float(raw.get("tempin")),
+            inside_humidity=_to_int(raw.get("humin")),
+            inside_heat_index=_to_float(raw.get("heatin")),
         )
 
     def get_station_info(self, device_id: str, scrape_name: bool = True) -> StationInfo:

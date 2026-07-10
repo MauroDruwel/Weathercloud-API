@@ -47,6 +47,9 @@ class CurrentConditions:
     rain: float | None             # mm total
     solar_radiation: float | None  # W/m²
     uv_index: int | None
+    inside_temperature: float | None  # °C
+    inside_humidity: int | None       # %
+    inside_heat_index: float | None   # °C
 
 
 @dataclass
