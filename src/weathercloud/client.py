@@ -15,8 +15,14 @@ _BASE_URL = "https://app.weathercloud.net"
 _DEFAULT_TIMEOUT = 10.0
 _STATUS_MAP = {"1": "online", "2": "recently_online", "3": "offline"}
 _BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
 }
 
 # ICAO airport codes are 4 uppercase ASCII letters (e.g. LEPA, EGLL, KJFK).
@@ -142,29 +148,87 @@ class WeathercloudClient:
         if self.username and self.password and not self._logged_in:
             self.login()
 
+    def _is_session_expired(
+        self,
+        resp: requests.Response | None,
+        exc: Exception | None = None,
+    ) -> bool:
+        if resp is not None:
+            if resp.status_code == 401:
+                return True
+            if "/signin" in resp.url or any("/signin" in r.url for r in resp.history):
+                return True
+            # Check for non-JSON sign-in responses (HTML sign-in page)
+            content_type = resp.headers.get("content-type", "").lower()
+            if "text/html" in content_type and ("signin" in resp.url or "LoginForm" in resp.text):
+                return True
+        if exc is not None and isinstance(exc, WeathercloudError):
+            err_msg = str(exc)
+            if "Expected JSON" in err_msg and ("signin" in err_msg or "login" in err_msg.lower()):
+                return True
+        return False
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        _retry: bool = True,
+    ) -> Any:
         self._ensure_logged_in()
         url = f"{self._base_url}{path}"
+        resp = None
         try:
-            resp = self._session.get(url, params=params, timeout=self._timeout)
+            resp = self._session.request(
+                method,
+                url,
+                params=params,
+                data=data,
+                timeout=self._timeout,
+            )
             resp.raise_for_status()
-        except requests.RequestException as exc:
+            if (
+                self.username
+                and self.password
+                and self._logged_in
+                and self._is_session_expired(resp)
+            ):
+                raise WeathercloudError("Expected JSON, session likely expired")
+            return self._parse_json(resp)
+        except (requests.RequestException, WeathercloudError) as exc:
+            r = resp or (
+                exc.response if isinstance(exc, requests.RequestException) else None
+            )
+            if (
+                _retry
+                and self.username
+                and self.password
+                and self._logged_in
+                and self._is_session_expired(r, exc)
+            ):
+                self._logged_in = False
+                self._ensure_logged_in()
+                return self._request(
+                    method,
+                    path,
+                    params=params,
+                    data=data,
+                    _retry=False,
+                )
+            if isinstance(exc, WeathercloudError):
+                raise
             raise WeathercloudError(f"Request failed: {exc}") from exc
-        return self._parse_json(resp)
+
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        return self._request("GET", path, params=params)
 
     def _post(self, path: str, data: dict[str, Any]) -> Any:
-        self._ensure_logged_in()
-        url = f"{self._base_url}{path}"
-        try:
-            resp = self._session.post(url, data=data, timeout=self._timeout)
-            resp.raise_for_status()
-        except requests.RequestException as exc:
-            raise WeathercloudError(f"Request failed: {exc}") from exc
-        return self._parse_json(resp)
+        return self._request("POST", path, data=data)
 
     def _get_dict(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         data = self._get(path, params)

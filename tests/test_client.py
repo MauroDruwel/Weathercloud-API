@@ -379,3 +379,37 @@ def test_login_failure():
 
         with pytest.raises(WeathercloudError, match="Login failed"):
             client.get_current_conditions(DEVICE_ID)
+
+
+@responses.activate
+def test_session_expiry_and_retry_success():
+    with WeathercloudClient(username="testuser", password="testpassword") as client:
+        # Pre-set logged in state
+        client._logged_in = True
+
+        # First request to get_device_values results in a redirect to signin
+        responses.get(
+            f"{BASE}/device/values/{DEVICE_ID}",
+            status=302,
+            headers={"Location": "/signin"},
+        )
+        # Mock the followed redirect to signin HTML page
+        responses.get(
+            f"{BASE}/signin",
+            status=200,
+            body="<html>LoginForm</html>",
+            content_type="text/html",
+        )
+
+        # Retry triggers login: GET / then POST /signin
+        responses.get(f"{BASE}/", status=200)
+        responses.post(f"{BASE}/signin", status=302, headers={"Location": "/"})
+
+        # The retried request succeeds
+        responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=VALUES_PAYLOAD)
+
+        cond = client.get_current_conditions(DEVICE_ID)
+        assert cond.inside_temperature == 21.5
+        # Total calls: 2 (failed request + followed redirect)
+        # + 1 (GET /) + 1 (POST /signin) + 1 (retried request) = 5
+        assert len(responses.calls) == 5
