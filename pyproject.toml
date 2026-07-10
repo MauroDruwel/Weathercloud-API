@@ -44,10 +44,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/MauroDruwel/Weathercloud-API"
+Homepage = "https://github.com/MauroDruwel/Weathercloud"
 Documentation = "https://weathercloud-api.maurodruwel.be"
-"Bug Tracker" = "https://github.com/MauroDruwel/Weathercloud-API/issues"
-"Source Code" = "https://github.com/MauroDruwel/Weathercloud-API"
+"Bug Tracker" = "https://github.com/MauroDruwel/Weathercloud/issues"
+"Source Code" = "https://github.com/MauroDruwel/Weathercloud"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

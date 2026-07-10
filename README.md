@@ -2,12 +2,12 @@
 
 [![PyPI](https://img.shields.io/pypi/v/weathercloud.svg)](https://pypi.org/project/weathercloud/)
 [![Python](https://img.shields.io/pypi/pyversions/weathercloud.svg)](https://pypi.org/project/weathercloud/)
-[![CI](https://github.com/MauroDruwel/Weathercloud-API/actions/workflows/ci.yml/badge.svg)](https://github.com/MauroDruwel/Weathercloud-API/actions/workflows/ci.yml)
+[![CI](https://github.com/MauroDruwel/Weathercloud/actions/workflows/ci.yml/badge.svg)](https://github.com/MauroDruwel/Weathercloud/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Unofficial, fully-typed Python client for [Weathercloud](https://app.weathercloud.net).
 Read live conditions, station metadata, history, and forecasts from any public
-station — **no account, no API key**.
+station — **no account, no API key** (recommended). Authentication is optional and only required if you want to access private indoor sensors (like inside temperature, humidity, and heat index) of a station you own.
 
 > ⚠️ Reverse-engineered from the public web app. Not affiliated with or endorsed
 > by Weathercloud, and the upstream endpoints may change without notice.
@@ -33,12 +33,19 @@ pip install weathercloud
 ```python
 from weathercloud import WeathercloudClient
 
+# Public data requires no login:
 with WeathercloudClient() as client:
     cond = client.get_current_conditions("5726468552")
 
 print(cond.temperature)   # 22.8
 print(cond.humidity)      # 62
-print(cond.wind_gust)     # 1.4
+
+# Pass your credentials to fetch private indoor sensors:
+with WeathercloudClient(username="my_user", password="my_password") as client:
+    cond = client.get_current_conditions("5726468552")
+
+print(cond.inside_temperature)  # 21.5 (None if not logged in)
+print(cond.inside_humidity)     # 55
 ```
 
 The client owns a `requests.Session`, so use it as a context manager (or call
@@ -46,6 +53,8 @@ The client owns a `requests.Session`, so use it as a context manager (or call
 
 ```python
 client = WeathercloudClient(timeout=30)   # seconds; default is 10
+# or with both credentials and timeout:
+client = WeathercloudClient(username="user", password="pass", timeout=15)
 ```
 
 ## 📖 API
@@ -65,7 +74,8 @@ reading the station doesn't provide comes back as `None` rather than raising.
 | `humidity` | `int \| None` | % | `wind_direction` | `int \| None` | ° |
 | `rain` | `float \| None` | mm | `rain_rate` | `float \| None` | mm/h |
 | `solar_radiation` | `float \| None` | W/m² | `uv_index` | `int \| None` | — |
-| `epoch` | `int \| None` | unix ts | | | |
+| `inside_temperature` | `float \| None` | °C | `inside_humidity` | `int \| None` | % |
+| `inside_heat_index` | `float \| None` | °C | `epoch` | `int \| None` | unix ts |
 
 ### `get_station_info(device_id, scrape_name=True)` → `StationInfo`
 
@@ -156,15 +166,15 @@ METAR (airport) stations use ICAO codes (`EBBR`, `EGLL`, …) and work on most
 
 ## 💡 Notes
 
-- 🔓 No authentication required for any endpoint.
+- 🔓 No authentication required for public endpoints (recommended). Supply credentials only if you need to fetch private inside sensors of a station you own.
 - ⏱️ Poll at most every 10 minutes — that's how often free stations update.
 - 🧭 Based on the [reverse-engineered OpenAPI spec](./docs/openapi.yaml) in this repo.
 
 ## 🛠️ Development
 
 ```sh
-git clone https://github.com/MauroDruwel/Weathercloud-API
-cd Weathercloud-API
+git clone https://github.com/MauroDruwel/Weathercloud
+cd Weathercloud
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
