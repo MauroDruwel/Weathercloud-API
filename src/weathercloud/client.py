@@ -287,7 +287,7 @@ class WeathercloudClient:
             rain_rate=_to_float(raw.get("rainrate")),
             rain=_to_float(raw.get("rain")),
             solar_radiation=_to_float(raw.get("solarrad")),
-            uv_index=_to_int(raw.get("uvi")),
+            uv_index=_to_float(raw.get("uvi")),
             inside_temperature=_to_float(raw.get("tempin")),
             inside_humidity=_to_int(raw.get("humin")),
             inside_heat_index=_to_float(raw.get("heatin")),

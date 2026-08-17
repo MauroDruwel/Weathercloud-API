@@ -46,7 +46,7 @@ class CurrentConditions:
     rain_rate: float | None        # mm/h
     rain: float | None             # mm total
     solar_radiation: float | None  # W/m²
-    uv_index: int | None
+    uv_index: float | None         # standard units; can be fractional
     inside_temperature: float | None  # °C
     inside_humidity: int | None       # %
     inside_heat_index: float | None   # °C

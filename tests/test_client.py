@@ -61,6 +61,17 @@ def test_get_current_conditions_returns_typed_dataclass(client):
 
 
 @responses.activate
+def test_get_current_conditions_fractional_uv_index(client):
+    payload = dict(VALUES_PAYLOAD, uvi="0.9")
+    responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=payload)
+
+    cond = client.get_current_conditions(DEVICE_ID)
+
+    # UV index is transmitted in standard units and can be fractional.
+    assert cond.uv_index == 0.9
+
+
+@responses.activate
 def test_get_current_conditions_missing_keys_become_none(client):
     payload = {"epoch": 1748358122, "temp": "22.8", "hum": "62"}
     responses.get(f"{BASE}/device/values/{DEVICE_ID}", json=payload)

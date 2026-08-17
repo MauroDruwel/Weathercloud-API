@@ -718,8 +718,8 @@ components:
           type: number
           description: Solar radiation (W/m²)
         uvi:
-          type: integer
-          description: UV index
+          type: number
+          description: UV index (standard units, not ×10 — can be fractional, e.g. 0.9)
         tempin:
           type: number
           description: Inside temperature (°C) — requires authentication
